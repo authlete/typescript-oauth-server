@@ -2,6 +2,7 @@
 import { UserRoundIcon } from "lucide-react";
 
 import { authClient } from "@/lib/auth-client";
+import Link from "next/link";
 
 export default function Home() {
 
@@ -19,6 +20,9 @@ export default function Home() {
         </h1>
         )}
       </div>
+ 
+      <Link href="/o/az" className="text-blue-500">Authorize</Link>
+ 
     </div>
   );
 }
