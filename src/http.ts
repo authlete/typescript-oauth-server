@@ -36,3 +36,26 @@ export function extractBearer(header: string | undefined): string | undefined {
   const match = /^Bearer\s+(.+)$/i.exec(header);
   return match?.[1]?.trim() || undefined;
 }
+
+/**
+ * Dispatch an Authlete authorization response (the common LOCATION / FORM /
+ * BAD_REQUEST / INTERNAL_SERVER_ERROR action set returned by /authorization,
+ * /authorization/issue, and /authorization/fail).
+ */
+export function dispatchAuthleteAction(
+  c: Context,
+  action: string | undefined,
+  responseContent: string | undefined,
+): Response {
+  switch (action) {
+    case "LOCATION":
+      return c.redirect(responseContent ?? "", 302);
+    case "FORM":
+      return c.html(responseContent ?? "");
+    case "BAD_REQUEST":
+      return c.body(responseContent ?? "{}", 400, jsonHeaders);
+    case "INTERNAL_SERVER_ERROR":
+    default:
+      return c.body(responseContent ?? "{}", 500, jsonHeaders);
+  }
+}
