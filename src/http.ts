@@ -9,10 +9,14 @@ import type { Context } from "hono";
 
 export const jsonHeaders = { "content-type": "application/json" } as const;
 
-export const noStoreJsonHeaders = {
-  "content-type": "application/json",
+export const noStoreHeaders = {
   "cache-control": "no-store",
   pragma: "no-cache",
+} as const;
+
+export const noStoreJsonHeaders = {
+  ...noStoreHeaders,
+  "content-type": "application/json",
 } as const;
 
 export const basicAuthChallenge = 'Basic realm="authlete-as"';

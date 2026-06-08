@@ -15,6 +15,7 @@ import { jwks } from "./routes/jwks.js";
 import { introspect } from "./routes/introspect.js";
 import { revoke } from "./routes/revoke.js";
 import { par } from "./routes/par.js";
+import { federation } from "./routes/federation.js";
 
 const app = new Hono();
 
@@ -46,6 +47,7 @@ app.route("/", jwks);
 app.route("/", introspect);
 app.route("/", revoke);
 app.route("/", par);
+app.route("/", federation);
 
 serve({ fetch: app.fetch, port: config.port }, ({ port }) => {
   console.log(`typescript-oauth-server listening on http://localhost:${port}`);

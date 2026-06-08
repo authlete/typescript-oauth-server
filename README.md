@@ -120,6 +120,32 @@ curl http://localhost:3000/.well-known/openid-configuration | jq .
 
 End-to-end is exercised by `auth-ui`'s smoke harness (`auth-ui/scripts/smoke-e2e.mjs`).
 
+## Federation mode (advanced)
+
+The AS also supports [OpenID Federation 1.0](https://openid.net/specs/openid-federation-1_0.html), letting it act as a federation-participating OpenID Provider under a trust anchor. **This is opt-in** — operators who don't enable it on the Authlete service never see federation behavior; the routes return `404` and the discovery doc doesn't advertise them.
+
+### What it adds
+
+Two new endpoints, paths matching [java-oauth-server](https://github.com/authlete/java-oauth-server):
+
+| Path | Method | Purpose |
+|---|---|---|
+| `GET /.well-known/openid-federation` | GET | Signed **entity configuration** (entity statement JWT) declaring the OP's metadata, JWKS, and `authority_hints`. |
+| `POST /api/federation/register` | POST | **Explicit client registration.** Accepts either `application/entity-statement+jwt` (the RP's entity configuration) or `application/trust-chain+json` (a JSON array of entity statement JWTs). |
+
+**Automatic registration** is fully transparent — when an RP arrives at `/oauth/authorize` with a federation entity ID as `client_id`, Authlete validates the trust chain inline and registers the client. No additional AS-side code.
+
+The `.well-known/openid-configuration` document automatically gains the federation fields (`federation_registration_endpoint`, `client_registration_types_supported`, `signed_jwks_uri`, etc.) when federation is enabled on the Authlete service.
+
+### Enabling it
+
+All configuration lives on the **Authlete service** — the AS picks it up automatically with no env changes. In the Authlete console:
+
+1. **Client Registration** tab — enable Federation Support; check `Automatic`, `Explicit`, or both; set Registration Endpoint to `<AS_BASE_URL>/api/federation/register`.
+2. **Entity Configuration** tab — set Organization Name; add Authority Hints (the trust anchor's entity ID); optionally set Configuration Duration.
+3. **Trust Anchors** tab — add each trust anchor as `{ Entity Identifier, JWKS }`.
+4. **Federation JWKS** — supply an ES256 keypair for signing entity statements.
+
 ## Roadmap
 
 The AS surface grows with the OAuth/OIDC spec; authentication features grow in `auth-ui`.
