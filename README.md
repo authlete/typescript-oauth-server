@@ -22,7 +22,7 @@ Built on **TypeScript · Hono · `@authlete/typescript-sdk`**.
 ### State model
 
 - The **Authlete ticket** is the only handle for an in-flight authorization. Auth result, consent decision, and request context all hang off it.
-- The **AS holds no per-transaction state**. The browser carries only the ticket id; the AS exchanges it back for context as needed. (One transitional exception is documented inline in `src/userstore.ts`.)
+- The **AS holds no per-transaction state**. The browser carries only the ticket id; the AS exchanges it back for context as needed.
 - `auth-ui` holds the user session but not the OAuth transaction.
 
 ### Trust boundaries
@@ -90,14 +90,33 @@ Copy `.env.example` to `.env` and fill in:
 | `AUTH_UI_URL` | Where `auth-ui` is reachable. |
 | `PORT` | Listen port (default `3000`). |
 | `AS_CORS_ORIGINS` | Comma-separated allowlist of browser origins (e.g. Authlete OAuth Playground). Empty disables CORS. |
+| `AS_SIGNING_JWKS` | Private ES256 JWKS the AS uses to sign Interaction Protocol JWTs. `.env.example` has a copy-paste command to generate one. |
+
+See `.env.example` for the full set, including optional Interaction Protocol overrides.
 
 ## Provisioning (one-time, per Authlete service)
 
-1. Sign up at https://us.authlete.com and create a new Authlete 3.0 service.
-2. Register a test RP client in the service (Authorization Code + PKCE) for end-to-end testing.
-3. Generate an ES256 key pair for the AS's interaction-protocol signing. Register the public JWK with the Authlete service's JWKS (so it shows up in `/oauth/jwks`); keep the private JWK in this AS's env as `AS_SIGNING_JWKS`.
-4. Populate the AS's `.env` from the Authlete console (service id + API token + URLs).
-5. The interaction app needs its own ES256 key pair and JWKS publication — see its own setup docs.
+1. Sign up at https://us.authlete.com and create a new **Authlete 3.0** service.
+2. **Register a JWK Set on the service.** A fresh service has no signing keys, so ID token issuance fails with `[A162201] ... the service has not registered its JWK Set` and `/oauth/authorize` returns `server_error`. Generate a signing key (RS256 is the OIDC default) and set it as the service's JWK Set in the Authlete console.
+3. Register a test RP client in the service for end-to-end testing:
+   - Client type: public (token endpoint auth method `none`)
+   - Grant types: `authorization_code`, `refresh_token`
+   - Response type: `code`, with PKCE (S256)
+   - Redirect URI: whatever your test RP uses (the smoke test in `auth-ui` uses `http://localhost:4040`)
+   - Scopes: `openid profile email`
+4. Generate an ES256 key pair for the AS's Interaction Protocol signing and set the private JWKS as `AS_SIGNING_JWKS` in this AS's `.env` (`.env.example` has a copy-paste command). The public half is served automatically at `/oauth/jwks`; nothing needs to be registered with Authlete.
+5. Populate the rest of the AS's `.env` from the Authlete console (service id + API token + URLs).
+6. The interaction app (`auth-ui`) needs its own ES256 key pair, published at its `/.well-known/jwks.json` — see its README.
+
+### The three key pairs
+
+This setup involves three separate key pairs. Don't mix them up:
+
+| Key | Where it lives | Purpose |
+|---|---|---|
+| Service JWKS (RS256) | Authlete service (console) | Authlete signs ID tokens |
+| `AS_SIGNING_JWKS` (ES256) | AS `.env` | AS signs Interaction Protocol JWTs to `auth-ui` |
+| `AUTH_UI_JWKS` (ES256) | auth-ui `.env` | `auth-ui` signs Interaction Protocol JWTs to the AS |
 
 ## Run locally
 
@@ -118,7 +137,7 @@ Discovery sanity:
 curl http://localhost:3000/.well-known/openid-configuration | jq .
 ```
 
-End-to-end is exercised by `auth-ui`'s smoke harness (`auth-ui/scripts/smoke-e2e.mjs`).
+End-to-end is exercised by `auth-ui`'s smoke harness (`auth-ui/scripts/smoke-e2e.mjs`) — see the auth-ui README for prerequisites and how to run it.
 
 ## Federation mode (advanced)
 
