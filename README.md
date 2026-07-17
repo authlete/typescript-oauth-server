@@ -96,9 +96,9 @@ See `.env.example` for the full set, including optional Interaction Protocol ove
 
 ## Provisioning (one-time, per Authlete service)
 
-1. Sign up at https://us.authlete.com and create a new **Authlete 3.0** service.
+1. Create an Authlete account, an organization, and a new **Authlete 3.0** service, and obtain the service id and API access token. New to Authlete? The [Getting Started guide](https://www.authlete.com/developers/getting_started/) walks through each of these console steps.
 2. **Register a JWK Set on the service.** A fresh service has no signing keys, so ID token issuance fails with `[A162201] ... the service has not registered its JWK Set` and `/oauth/authorize` returns `server_error`. Generate a signing key (RS256 is the OIDC default) and set it as the service's JWK Set in the Authlete console.
-3. Register a test RP client in the service for end-to-end testing:
+3. Register a test RP client in the service for end-to-end testing (in the console: open your service and click "Create your first client"). Its client id goes in `RP_CLIENT_ID` in auth-ui's `.env`. Settings:
    - Client type: public (token endpoint auth method `none`)
    - Grant types: `authorization_code`, `refresh_token`
    - Response type: `code`, with PKCE (S256)
