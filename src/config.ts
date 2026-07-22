@@ -24,7 +24,19 @@ function list(name: string): string[] {
   return v.split(",").map((s) => s.trim()).filter(Boolean);
 }
 
-const asBaseUrl = required("AS_BASE_URL");
+// The AS's public origin. Prefer the explicit AS_BASE_URL; on Vercel preview
+// deployments (which get a unique per-deploy domain) fall back to VERCEL_URL so
+// the issuer resolves without hardcoding. Production should always set
+// AS_BASE_URL explicitly to a stable domain registered with Authlete.
+function resolveAsBaseUrl(): string {
+  const explicit = process.env.AS_BASE_URL;
+  if (explicit && explicit.length > 0) return explicit;
+  const vercelUrl = process.env.VERCEL_URL;
+  if (vercelUrl && vercelUrl.length > 0) return `https://${vercelUrl}`;
+  throw new Error("Missing required env var: AS_BASE_URL");
+}
+
+const asBaseUrl = resolveAsBaseUrl();
 const authUiUrl = required("AUTH_UI_URL");
 
 export const config = {

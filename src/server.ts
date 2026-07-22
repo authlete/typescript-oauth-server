@@ -1,10 +1,13 @@
 /**
- * Hono app entry. Mounts route modules and starts the runtime adapter.
+ * Hono app. Mounts route modules and exports the app as the default export.
+ *
+ * The default export is what Vercel serves directly (each route becomes a
+ * Vercel Function). For local development, `src/dev.ts` wraps this app in a
+ * Node HTTP listener.
  */
 
 import { Hono } from "hono";
 import { cors } from "hono/cors";
-import { serve } from "@hono/node-server";
 import { config } from "./config.js";
 import { wellKnown } from "./routes/well-known.js";
 import { authorize } from "./routes/authorize.js";
@@ -56,6 +59,4 @@ app.route("/", par);
 app.route("/", federation);
 app.route("/", register);
 
-serve({ fetch: app.fetch, port: config.port }, ({ port }) => {
-  console.log(`typescript-oauth-server listening on http://localhost:${port}`);
-});
+export default app;

@@ -104,8 +104,9 @@ Copy `.env.example` to `.env` and fill in:
 ## Run locally
 
 ```bash
-pnpm install
-pnpm dev
+npm install
+cp .env.example .env   # then fill in the values above
+npm run dev
 ```
 
 Server boots at `http://localhost:3000`. Health probe:
@@ -121,6 +122,26 @@ curl http://localhost:3000/.well-known/openid-configuration | jq .
 ```
 
 End-to-end is exercised by `auth-ui`'s smoke harness (`auth-ui/scripts/smoke-e2e.mjs`).
+
+## Deploy to Vercel
+
+The server is a Hono app with a `default` export, which Vercel runs with zero
+configuration — each route becomes a Vercel Function. The AS holds no
+per-transaction state, so it maps cleanly onto serverless.
+
+1. Import the GitHub repo into a Vercel project once. Every push then builds and
+   deploys automatically, with a preview URL per pull request.
+2. Set the environment variables from the table above in the Vercel project
+   (there is no `.env` file in a deployment). `AS_SIGNING_JWKS` must be the same
+   private JWKS whose public counterpart is registered with Authlete.
+3. Set `AS_BASE_URL` to your stable production domain — it is the issuer identity
+   and must match what is registered with the Authlete service. Preview
+   deployments fall back to their per-deploy `VERCEL_URL` automatically, so leave
+   `AS_BASE_URL` unset in the Preview environment if you want previews to
+   self-configure.
+
+`vercel.json` pins the functions to a US region (`iad1`) to keep latency to the
+Authlete US cluster low; adjust it for your cluster.
 
 ## Federation mode (advanced)
 
