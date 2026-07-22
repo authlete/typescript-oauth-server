@@ -46,6 +46,20 @@ if (config.corsOrigins.length > 0) {
   app.use("/api/register/*", corsMiddleware);
 }
 
+// Root signpost.
+app.get("/", (c) =>
+  c.json({
+    name: "typescript-oauth-server",
+    status: "ok",
+    authlete: {
+      baseUrl: config.authleteBaseUrl,
+      serviceId: config.authleteServiceId,
+    },
+    interactionApp: config.authUiUrl,
+    discovery: `${config.asBaseUrl}/.well-known/openid-configuration`,
+  }),
+);
+
 app.get("/health", (c) => c.json({ status: "ok" }));
 app.route("/", wellKnown);
 app.route("/", authorize);
