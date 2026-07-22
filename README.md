@@ -62,6 +62,8 @@ This separation matches the architecture Authlete is designed around: the engine
 | `POST /oauth/par` | RFC 9126 | Pushed Authorization Requests. |
 | `POST /oauth/introspect` | RFC 7662 | Token introspection. |
 | `POST /oauth/revoke` | RFC 7009 | Token revocation. |
+| `POST /api/register` | RFC 7591 | Dynamic Client Registration. |
+| `GET/PUT/DELETE /api/register/{id}` | RFC 7592 | Client registration management (read / update / delete). |
 | `GET /oauth/jwks` | RFC 7517 | Service JWK Set (merges Authlete-managed keys + the AS's own interaction-protocol signing key). |
 | `GET /.well-known/openid-configuration` | OIDC Discovery | OIDC discovery metadata. |
 | `GET /.well-known/oauth-authorization-server` | RFC 8414 | OAuth AS metadata. |
@@ -155,7 +157,6 @@ The AS surface grows with the OAuth/OIDC spec; authentication features grow in `
 - **FAPI 2.0** — DPoP, JAR, JARM (PAR already shipped).
 - **mTLS client auth** (`tls_client_auth`).
 - **CIBA** (`urn:openid:params:grant-type:ciba`).
-- **Dynamic Client Registration** (RFC 7591/7592).
 - **RP-Initiated Logout / Front- and Back-channel Logout**.
 - **Grants Management API**.
 

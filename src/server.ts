@@ -16,6 +16,7 @@ import { introspect } from "./routes/introspect.js";
 import { revoke } from "./routes/revoke.js";
 import { par } from "./routes/par.js";
 import { federation } from "./routes/federation.js";
+import { register } from "./routes/register.js";
 
 const app = new Hono();
 
@@ -30,7 +31,7 @@ if (config.corsOrigins.length > 0) {
     origin: allowAll
       ? "*"
       : (origin) => (config.corsOrigins.includes(origin) ? origin : null),
-    allowMethods: ["GET", "POST", "OPTIONS"],
+    allowMethods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allowHeaders: ["Authorization", "Content-Type", "DPoP"],
     exposeHeaders: ["WWW-Authenticate"],
     maxAge: 600,
@@ -38,6 +39,8 @@ if (config.corsOrigins.length > 0) {
   app.use("/.well-known/*", corsMiddleware);
   app.use("/oauth/*", corsMiddleware);
   app.use("/api/federation/*", corsMiddleware);
+  app.use("/api/register", corsMiddleware);
+  app.use("/api/register/*", corsMiddleware);
 }
 
 app.get("/health", (c) => c.json({ status: "ok" }));
@@ -51,6 +54,7 @@ app.route("/", introspect);
 app.route("/", revoke);
 app.route("/", par);
 app.route("/", federation);
+app.route("/", register);
 
 serve({ fetch: app.fetch, port: config.port }, ({ port }) => {
   console.log(`typescript-oauth-server listening on http://localhost:${port}`);
