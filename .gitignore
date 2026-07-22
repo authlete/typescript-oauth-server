@@ -2,6 +2,7 @@ node_modules
 dist
 .env
 .env.local
+.env.us-cluster
 .vercel
 *.log
 .DS_Store
