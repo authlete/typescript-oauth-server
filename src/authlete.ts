@@ -1,21 +1,17 @@
 /**
- * Authlete SDK client. Single shared instance configured from env.
+ * Builds the Authlete SDK client from a config.
  *
- * The SDK's `serviceId` constructor option auto-injects the service ID into
- * every API call, so call sites don't repeat it.
+ * `createApp` calls this once (from env in single-tenant, per tenant in a
+ * multi-tenant host). The client is then handed to the routes as a plain
+ * dependency — no module-global singleton, no request-scoped magic.
  */
 
 import { Authlete } from "@authlete/typescript-sdk/authlete";
-import { config } from "./config.js";
+import type { Config } from "./config.js";
 
-/**
- * Imported from the SDK's `/authlete` subpath which exports the overlay class.
- * Note: the overlay injects `serviceId` at runtime via a Proxy, but the
- * Speakeasy-generated TypeScript types still require `serviceId` as a property
- * of each request — so call sites must pass it explicitly anyway.
- * Pass `config.authleteServiceId` at each call site for type-safety.
- */
-export const authlete = new Authlete({
-  serverURL: config.authleteBaseUrl,
-  bearer: config.authleteApiToken,
-});
+export function makeAuthlete(config: Config): Authlete {
+  return new Authlete({
+    serverURL: config.authleteBaseUrl,
+    bearer: config.authleteApiToken,
+  });
+}

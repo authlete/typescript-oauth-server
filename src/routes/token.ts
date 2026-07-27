@@ -8,21 +8,24 @@
 
 import type { Context } from "hono";
 import { Hono } from "hono";
-import { authlete } from "../authlete.js";
-import { config } from "../config.js";
+import type { Deps } from "../app.js";
 import { basicCredsFor } from "../auth/basic.js";
 import { basicChallengeHeaders, noStoreJsonHeaders } from "../http.js";
 
-export const token = new Hono();
+export function tokenRoutes({ authlete, config }: Deps) {
+  const token = new Hono();
 
-token.post("/oauth/token", async (c) => {
-  const parameters = await c.req.text();
-  const res = await authlete.token.process({
-    serviceId: config.authleteServiceId,
-    tokenRequest: { parameters, ...basicCredsFor(c) },
+  token.post("/oauth/token", async (c) => {
+    const parameters = await c.req.text();
+    const res = await authlete.token.process({
+      serviceId: config.authleteServiceId,
+      tokenRequest: { parameters, ...basicCredsFor(c) },
+    });
+    return dispatch(c, res.action, res.responseContent);
   });
-  return dispatch(c, res.action, res.responseContent);
-});
+
+  return token;
+}
 
 function dispatch(c: Context, action: string | undefined, responseContent: string | undefined): Response {
   const body = responseContent ?? "";

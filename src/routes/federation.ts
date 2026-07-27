@@ -1,5 +1,5 @@
 /**
- * OpenID Federation 1.0 endpoints — mirrors java-oauth-server verbatim.
+ * OpenID Federation 1.0 endpoints.
  *
  * Routes are mounted unconditionally. When the Authlete service has federation
  * disabled, Authlete returns action=NOT_FOUND and we relay 404 — plain
@@ -17,11 +17,8 @@ import {
   type FederationRegistrationRequest,
   type FederationRegistrationResponse,
 } from "@authlete/typescript-sdk/models";
-import { authlete } from "../authlete.js";
-import { config } from "../config.js";
+import type { Deps } from "../app.js";
 import { noStoreHeaders } from "../http.js";
-
-export const federation = new Hono();
 
 const ENTITY_STATEMENT_JWT = "application/entity-statement+jwt";
 const TRUST_CHAIN_JSON = "application/trust-chain+json";
@@ -36,41 +33,47 @@ const errorJsonHeaders = {
   "content-type": "application/json",
 } as const;
 
-federation.get("/.well-known/openid-federation", async (c) => {
-  const res = await authlete.federation.configuration({
-    serviceId: config.authleteServiceId,
-    // SDK gap (#2 + #3 in docs/AUTHLETE_SDK_GAPS.md): empty `{}` is required
-    // (typed optional but isn't) and `entityTypes` filter cannot be passed.
-    requestBody: {},
+export function federationRoutes({ authlete, config }: Deps) {
+  const federation = new Hono();
+
+  federation.get("/.well-known/openid-federation", async (c) => {
+    const res = await authlete.federation.configuration({
+      serviceId: config.authleteServiceId,
+      // SDK gap (#2 + #3 in docs/AUTHLETE_SDK_GAPS.md): empty `{}` is required
+      // (typed optional but isn't) and `entityTypes` filter cannot be passed.
+      requestBody: {},
+    });
+    return dispatchConfiguration(c, res);
   });
-  return dispatchConfiguration(c, res);
-});
 
-federation.post("/api/federation/register", async (c) => {
-  const contentType = c.req.header("content-type")?.split(";")[0]?.trim();
+  federation.post("/api/federation/register", async (c) => {
+    const contentType = c.req.header("content-type")?.split(";")[0]?.trim();
 
-  let federationRegistrationRequest: FederationRegistrationRequest;
-  if (contentType === ENTITY_STATEMENT_JWT) {
-    federationRegistrationRequest = { entityConfiguration: await c.req.text() };
-  } else if (contentType === TRUST_CHAIN_JSON) {
-    federationRegistrationRequest = { trustChain: await c.req.text() };
-  } else {
-    return c.body(
-      JSON.stringify({
-        error: "unsupported_media_type",
-        error_description: `Expected ${ENTITY_STATEMENT_JWT} or ${TRUST_CHAIN_JSON}`,
-      }),
-      415,
-      errorJsonHeaders,
-    );
-  }
+    let federationRegistrationRequest: FederationRegistrationRequest;
+    if (contentType === ENTITY_STATEMENT_JWT) {
+      federationRegistrationRequest = { entityConfiguration: await c.req.text() };
+    } else if (contentType === TRUST_CHAIN_JSON) {
+      federationRegistrationRequest = { trustChain: await c.req.text() };
+    } else {
+      return c.body(
+        JSON.stringify({
+          error: "unsupported_media_type",
+          error_description: `Expected ${ENTITY_STATEMENT_JWT} or ${TRUST_CHAIN_JSON}`,
+        }),
+        415,
+        errorJsonHeaders,
+      );
+    }
 
-  const res = await authlete.federation.registration({
-    serviceId: config.authleteServiceId,
-    federationRegistrationRequest,
+    const res = await authlete.federation.registration({
+      serviceId: config.authleteServiceId,
+      federationRegistrationRequest,
+    });
+    return dispatchRegistration(c, res);
   });
-  return dispatchRegistration(c, res);
-});
+
+  return federation;
+}
 
 function dispatchConfiguration(c: Context, res: FederationConfigurationResponse): Response {
   const content = res.responseContent ?? "";

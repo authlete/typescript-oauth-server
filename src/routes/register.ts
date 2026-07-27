@@ -11,62 +11,65 @@
 import type { Context } from "hono";
 import { Hono } from "hono";
 import type { ClientRegistrationResponse } from "@authlete/typescript-sdk/models";
-import { authlete } from "../authlete.js";
-import { config } from "../config.js";
+import type { Deps } from "../app.js";
 import { extractBearer, noStoreJsonHeaders } from "../http.js";
 
-export const register = new Hono();
+export function registerRoutes({ authlete, config }: Deps) {
+  const register = new Hono();
 
-// RFC 7591 §3.1 — register a client. The bearer token, if present, is the
-// initial access token; Authlete decides whether one is required.
-register.post("/api/register", async (c) => {
-  const res = await authlete.dynamicClientRegistration.register({
-    serviceId: config.authleteServiceId,
-    requestBody: {
-      json: await c.req.text(),
-      token: extractBearer(c.req.header("authorization")),
-    },
+  // RFC 7591 §3.1 — register a client. The bearer token, if present, is the
+  // initial access token; Authlete decides whether one is required.
+  register.post("/api/register", async (c) => {
+    const res = await authlete.dynamicClientRegistration.register({
+      serviceId: config.authleteServiceId,
+      requestBody: {
+        json: await c.req.text(),
+        token: extractBearer(c.req.header("authorization")),
+      },
+    });
+    return dispatch(c, res);
   });
-  return dispatch(c, res);
-});
 
-// RFC 7592 §2.1 — read the current registration. The bearer token is the
-// registration access token issued at creation.
-register.get("/api/register/:id", async (c) => {
-  const res = await authlete.dynamicClientRegistration.get({
-    serviceId: config.authleteServiceId,
-    requestBody: {
-      clientId: c.req.param("id"),
-      token: extractBearer(c.req.header("authorization")) ?? "",
-    },
+  // RFC 7592 §2.1 — read the current registration. The bearer token is the
+  // registration access token issued at creation.
+  register.get("/api/register/:id", async (c) => {
+    const res = await authlete.dynamicClientRegistration.get({
+      serviceId: config.authleteServiceId,
+      requestBody: {
+        clientId: c.req.param("id"),
+        token: extractBearer(c.req.header("authorization")) ?? "",
+      },
+    });
+    return dispatch(c, res);
   });
-  return dispatch(c, res);
-});
 
-// RFC 7592 §2.2 — replace the client's metadata.
-register.put("/api/register/:id", async (c) => {
-  const res = await authlete.dynamicClientRegistration.update({
-    serviceId: config.authleteServiceId,
-    requestBody: {
-      clientId: c.req.param("id"),
-      json: await c.req.text(),
-      token: extractBearer(c.req.header("authorization")) ?? "",
-    },
+  // RFC 7592 §2.2 — replace the client's metadata.
+  register.put("/api/register/:id", async (c) => {
+    const res = await authlete.dynamicClientRegistration.update({
+      serviceId: config.authleteServiceId,
+      requestBody: {
+        clientId: c.req.param("id"),
+        json: await c.req.text(),
+        token: extractBearer(c.req.header("authorization")) ?? "",
+      },
+    });
+    return dispatch(c, res);
   });
-  return dispatch(c, res);
-});
 
-// RFC 7592 §2.3 — deregister the client.
-register.delete("/api/register/:id", async (c) => {
-  const res = await authlete.dynamicClientRegistration.delete({
-    serviceId: config.authleteServiceId,
-    requestBody: {
-      clientId: c.req.param("id"),
-      token: extractBearer(c.req.header("authorization")) ?? "",
-    },
+  // RFC 7592 §2.3 — deregister the client.
+  register.delete("/api/register/:id", async (c) => {
+    const res = await authlete.dynamicClientRegistration.delete({
+      serviceId: config.authleteServiceId,
+      requestBody: {
+        clientId: c.req.param("id"),
+        token: extractBearer(c.req.header("authorization")) ?? "",
+      },
+    });
+    return dispatch(c, res);
   });
-  return dispatch(c, res);
-});
+
+  return register;
+}
 
 function dispatch(c: Context, res: ClientRegistrationResponse): Response {
   const body = res.responseContent ?? "";

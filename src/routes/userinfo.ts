@@ -58,72 +58,71 @@
 
 import type { Context } from "hono";
 import { Hono } from "hono";
-import { authlete } from "../authlete.js";
-import { config } from "../config.js";
+import type { Deps } from "../app.js";
 import { bearerAuthChallenge, bearerChallenge, extractBearer, noStoreJsonHeaders } from "../http.js";
 import { fetchUser } from "../auth-ui-client.js";
 
-export const userinfo = new Hono();
+export function userinfoRoutes({ authlete, config }: Deps) {
+  const userinfo = new Hono();
 
-userinfo.get("/oauth/userinfo", async (c) => handle(c, extractAccessToken(c)));
+  async function handle(c: Context, token: string | undefined): Promise<Response> {
+    if (!token) return bearerChallenge(c, 401);
 
-userinfo.post("/oauth/userinfo", async (c) => {
-  // OIDC §5.3.1: the token may come via Authorization header OR form body.
-  // A POST without a form body is also legal (openid/connect#1137).
-  let formToken: string | undefined;
-  if (c.req.header("content-type")?.includes("application/x-www-form-urlencoded")) {
-    const v = (await c.req.parseBody())["access_token"];
-    if (typeof v === "string") formToken = v;
-  }
-  return handle(c, extractAccessToken(c, formToken));
-});
+    const proc = await authlete.userinfo.process({
+      serviceId: config.authleteServiceId,
+      userinfoRequest: { token },
+    });
 
-async function handle(c: Context, token: string | undefined): Promise<Response> {
-  if (!token) return bearerChallenge(c, 401);
+    if (proc.action !== "OK") {
+      return mapErrorAction(c, proc.action, proc.responseContent);
+    }
 
-  const proc = await authlete.userinfo.process({
-    serviceId: config.authleteServiceId,
-    userinfoRequest: { token },
-  });
+    // If Authlete didn't supply values itself, fetch the user live from auth-ui
+    // and project onto the claims the user actually consented to release.
+    // `consentedClaims` is authoritative (user's actual grant); `claims` is the
+    // requested set (may be wider). Falling through to "no filter" would leak
+    // claims the user did not consent to.
+    let claimsJson = proc.userInfoClaims;
+    if (!claimsJson && proc.subject) {
+      const user = await fetchUser(config, proc.subject);
+      if (user) {
+        const consented = proc.consentedClaims ?? proc.claims ?? [];
+        claimsJson = JSON.stringify(projectClaims(user, consented));
+      }
+    }
 
-  if (proc.action !== "OK") {
-    return mapErrorAction(c, proc.action, proc.responseContent);
-  }
+    const issue = await authlete.userinfo.issue({
+      serviceId: config.authleteServiceId,
+      userinfoIssueRequest: { token, claims: claimsJson, sub: proc.subject },
+    });
 
-  // If Authlete didn't supply values itself, fetch the user live from auth-ui
-  // and project onto the claims the user actually consented to release.
-  // `consentedClaims` is authoritative (user's actual grant); `claims` is the
-  // requested set (may be wider). Falling through to "no filter" would leak
-  // claims the user did not consent to.
-  let claimsJson = proc.userInfoClaims;
-  if (!claimsJson && proc.subject) {
-    const user = await fetchUser(proc.subject);
-    if (user) {
-      const consented = proc.consentedClaims ?? proc.claims ?? [];
-      claimsJson = JSON.stringify(projectClaims(user, consented));
+    switch (issue.action) {
+      case "JSON":
+        return c.body(issue.responseContent ?? "{}", 200, noStoreJsonHeaders);
+      case "JWT":
+        return c.body(issue.responseContent ?? "", 200, {
+          ...noStoreJsonHeaders,
+          "content-type": "application/jwt",
+        });
+      default:
+        return mapErrorAction(c, issue.action, issue.responseContent);
     }
   }
 
-  const issue = await authlete.userinfo.issue({
-    serviceId: config.authleteServiceId,
-    userinfoIssueRequest: {
-      token,
-      claims: claimsJson,
-      sub: proc.subject,
-    },
+  userinfo.get("/oauth/userinfo", async (c) => handle(c, extractAccessToken(c)));
+
+  userinfo.post("/oauth/userinfo", async (c) => {
+    // OIDC §5.3.1: the token may come via Authorization header OR form body.
+    // A POST without a form body is also legal (openid/connect#1137).
+    let formToken: string | undefined;
+    if (c.req.header("content-type")?.includes("application/x-www-form-urlencoded")) {
+      const v = (await c.req.parseBody())["access_token"];
+      if (typeof v === "string") formToken = v;
+    }
+    return handle(c, extractAccessToken(c, formToken));
   });
 
-  switch (issue.action) {
-    case "JSON":
-      return c.body(issue.responseContent ?? "{}", 200, noStoreJsonHeaders);
-    case "JWT":
-      return c.body(issue.responseContent ?? "", 200, {
-        ...noStoreJsonHeaders,
-        "content-type": "application/jwt",
-      });
-    default:
-      return mapErrorAction(c, issue.action, issue.responseContent);
-  }
+  return userinfo;
 }
 
 function mapErrorAction(c: Context, action: string | undefined, responseContent: string | undefined): Response {
@@ -148,10 +147,7 @@ function mapErrorAction(c: Context, action: string | undefined, responseContent:
  * `consentedClaims` over `claims`). `sub` is always added because OIDC
  * Core §5.3.2 requires it in every UserInfo response.
  */
-function projectClaims(
-  user: Record<string, unknown>,
-  wanted: string[],
-): Record<string, unknown> {
+function projectClaims(user: Record<string, unknown>, wanted: string[]): Record<string, unknown> {
   const mappings: Array<[claim: string, value: unknown]> = [
     ["sub", user.id],
     ["name", user.name],

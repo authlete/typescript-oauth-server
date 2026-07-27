@@ -6,12 +6,12 @@
  * See INTERACTION_PROTOCOL.md §7.3.
  */
 
-import { config } from "./config.js";
+import type { Config } from "./config.js";
 import { signJwt } from "./jws.js";
 
-export async function fetchUser(id: string): Promise<Record<string, unknown> | null> {
+export async function fetchUser(config: Config, id: string): Promise<Record<string, unknown> | null> {
   const url = `${config.authUiUrl}/api/users/${encodeURIComponent(id)}`;
-  const jwt = await signJwt({});
+  const jwt = await signJwt(config, {});
   const res = await fetch(url, {
     headers: { authorization: `Bearer ${jwt}` },
   });

@@ -12,7 +12,7 @@
  */
 
 import type { AuthorizationResponse } from "@authlete/typescript-sdk/models/authorizationresponse";
-import { config } from "./config.js";
+import type { Config } from "./config.js";
 
 export type Decision =
   | {
@@ -39,21 +39,21 @@ export type StoredContext = {
   decision?: Decision;
 };
 
-function authleteUrl(path: string): string {
+function authleteUrl(config: Config, path: string): string {
   return `${config.authleteBaseUrl}/api/${config.authleteServiceId}${path}`;
 }
 
-function authHeaders() {
+function authHeaders(config: Config) {
   return {
     "Content-Type": "application/json",
     Authorization: `Bearer ${config.authleteApiToken}`,
   };
 }
 
-export async function storeContext(ticket: string, ctx: StoredContext): Promise<void> {
-  const res = await fetch(authleteUrl("/auth/authorization/ticket/update"), {
+export async function storeContext(config: Config, ticket: string, ctx: StoredContext): Promise<void> {
+  const res = await fetch(authleteUrl(config, "/auth/authorization/ticket/update"), {
     method: "POST",
-    headers: authHeaders(),
+    headers: authHeaders(config),
     body: JSON.stringify({
       ticket,
       info: { context: JSON.stringify(ctx) },
@@ -65,10 +65,10 @@ export async function storeContext(ticket: string, ctx: StoredContext): Promise<
   }
 }
 
-export async function loadContext(ticket: string): Promise<StoredContext | null> {
-  const res = await fetch(authleteUrl("/auth/authorization/ticket/info"), {
+export async function loadContext(config: Config, ticket: string): Promise<StoredContext | null> {
+  const res = await fetch(authleteUrl(config, "/auth/authorization/ticket/info"), {
     method: "POST",
-    headers: authHeaders(),
+    headers: authHeaders(config),
     body: JSON.stringify({ ticket }),
   });
   if (!res.ok) {

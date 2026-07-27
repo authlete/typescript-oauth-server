@@ -8,7 +8,7 @@
  */
 
 import type { JWK } from "jose";
-import { config } from "./config.js";
+import type { Config } from "./config.js";
 
 export type JWKS = { keys: JWK[] };
 
@@ -65,8 +65,8 @@ export function resolveSigningKey(jwks: JWKS, opts: { kid?: string; alg?: string
 let cachedAsPrivateJwks: JWKS | null = null;
 let cachedAsPublicJwks: JWKS | null = null;
 
-/** Memoized AS private JWKS (parsed from env once). */
-export function getAsPrivateJwks(): JWKS {
+/** Memoized AS private JWKS (the signing key is deployment-wide, parsed once). */
+export function getAsPrivateJwks(config: Config): JWKS {
   if (!cachedAsPrivateJwks) {
     if (!config.asSigningJwks) throw new Error("AS_SIGNING_JWKS not configured");
     cachedAsPrivateJwks = parseJwks(config.asSigningJwks);
@@ -75,9 +75,9 @@ export function getAsPrivateJwks(): JWKS {
 }
 
 /** Memoized AS public JWKS — published via /oauth/jwks (merged with Authlete's). */
-export function getAsPublicJwks(): JWKS {
+export function getAsPublicJwks(config: Config): JWKS {
   if (!cachedAsPublicJwks) {
-    cachedAsPublicJwks = config.asSigningJwks ? publicJwks(getAsPrivateJwks()) : { keys: [] };
+    cachedAsPublicJwks = config.asSigningJwks ? publicJwks(getAsPrivateJwks(config)) : { keys: [] };
   }
   return cachedAsPublicJwks;
 }

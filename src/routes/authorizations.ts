@@ -10,81 +10,15 @@
  *                                                  redirects browser to RP
  *
  * `{id}` is the opaque authorization-transaction id (backed by an Authlete
- * ticket). See INTERACTION_PROTOCOL.md §6–§7.
+ * ticket). See INTERACTION_PROTOCOL.md.
  */
 
 import type { Context } from "hono";
 import { Hono } from "hono";
-import { authlete } from "../authlete.js";
-import { config } from "../config.js";
+import type { Deps } from "../app.js";
 import { loadContext, storeContext, type Decision, type StoredContext } from "../context.js";
 import { dispatchAuthleteAction } from "../http.js";
 import { requireJws, type InteractionAuthContext } from "../auth/interaction-auth.js";
-
-export const authorizations = new Hono();
-
-// --- shared per-route guard -----------------------------------------------
-
-/**
- * Verify the inbound JWT, load the authorization context, and check the JWT's
- * `authorization` claim matches the URL `{id}`. Returns `{auth, ctx}` on
- * success or a `Response` for the caller to return verbatim.
- */
-async function requireJwsForAuthorization(
-  c: Context,
-  id: string,
-): Promise<{ auth: InteractionAuthContext; ctx: StoredContext } | Response> {
-  const [auth, ctx] = await Promise.all([requireJws(c), loadContext(id)]);
-  if (auth instanceof Response) return auth;
-  if (!ctx) {
-    return c.json({ error: "not_found", error_description: "authorization not found or expired" }, 404);
-  }
-  if (auth.payload.authorization !== id) {
-    return c.json({ error: "invalid_token", error_description: "JWT authorization claim does not match URL" }, 401);
-  }
-  return { auth, ctx };
-}
-
-// --- GET /api/authorizations/:id — fetch in-flight state -------------------
-
-authorizations.get("/api/authorizations/:id", async (c) => {
-  const id = c.req.param("id");
-  const guard = await requireJwsForAuthorization(c, id);
-  if (guard instanceof Response) return guard;
-
-  const a = guard.ctx.auth;
-  const client = a.client ?? {};
-
-  return c.json({
-    client: {
-      client_id: stringIdOrAlias(client),
-      name: client.clientName,
-      logo_uri: client.logoUri,
-      policy_uri: client.policyUri,
-      tos_uri: client.tosUri,
-    },
-    needs: ["authentication", "consent"],
-    skip: a.action === "NO_INTERACTION",
-    login_hint: a.loginHint,
-    prompt: Array.isArray(a.prompts) ? a.prompts.join(" ") : undefined,
-    acr_values: a.acrs,
-    max_age: typeof a.maxAge === "number" && a.maxAge > 0 ? a.maxAge : undefined,
-    ui_locales: a.uiLocales,
-    subject: a.subject ?? null,
-    requested_scopes: (a.scopes ?? []).map((s) => ({
-      name: s.name,
-      description: s.description,
-    })),
-    requested_claims: {
-      id_token: a.idTokenClaims,
-      userinfo: a.claimsAtUserInfo,
-      all: a.claims,
-    },
-    previously_granted_scopes: [],
-  });
-});
-
-// --- POST /api/authorizations/:id/decision — submit decision ---------------
 
 type ApprovedDecisionClaim = {
   outcome: "approved";
@@ -103,92 +37,153 @@ type DeniedDecisionClaim = {
 };
 type DecisionClaim = ApprovedDecisionClaim | DeniedDecisionClaim;
 
-authorizations.post("/api/authorizations/:id/decision", async (c) => {
-  const id = c.req.param("id");
-  const guard = await requireJwsForAuthorization(c, id);
-  if (guard instanceof Response) return guard;
+export function authorizationsRoutes({ authlete, config }: Deps) {
+  const authorizations = new Hono();
 
-  const claim = guard.auth.payload.decision as DecisionClaim | undefined;
-  if (!claim || !claim.outcome) {
-    return c.json({ error: "invalid_token", error_description: "JWT missing decision claim" }, 401);
+  /**
+   * Verify the inbound JWT, load the authorization context, and check the JWT's
+   * `authorization` claim matches the URL `{id}`. Returns `{auth, ctx}` on
+   * success or a `Response` for the caller to return verbatim.
+   */
+  async function requireJwsForAuthorization(
+    c: Context,
+    id: string,
+  ): Promise<{ auth: InteractionAuthContext; ctx: StoredContext } | Response> {
+    const [auth, ctx] = await Promise.all([requireJws(c, config), loadContext(config, id)]);
+    if (auth instanceof Response) return auth;
+    if (!ctx) {
+      return c.json({ error: "not_found", error_description: "authorization not found or expired" }, 404);
+    }
+    if (auth.payload.authorization !== id) {
+      return c.json({ error: "invalid_token", error_description: "JWT authorization claim does not match URL" }, 401);
+    }
+    return { auth, ctx };
   }
 
-  const decision: Decision = claim.outcome === "denied"
-    ? {
-        outcome: "denied",
-        error: claim.error,
-        errorDescription: claim.error_description,
-      }
-    : {
-        outcome: "approved",
-        subject: claim.subject,
-        acr: claim.acr,
-        amr: claim.amr,
-        authenticatedAt: claim.authenticated_at,
-        grantedScopes: claim.granted_scopes,
-        userClaims: claim.user_claims,
-        grantedClaims: claim.granted_claims,
-      };
+  // --- GET /api/authorizations/:id — fetch in-flight state -----------------
+  authorizations.get("/api/authorizations/:id", async (c) => {
+    const id = c.req.param("id");
+    const guard = await requireJwsForAuthorization(c, id);
+    if (guard instanceof Response) return guard;
 
-  if (decision.outcome === "approved" && !decision.subject) {
-    return c.json(
-      { error: "invalid_request", error_description: "subject required for approved decisions" },
-      400,
-    );
-  }
+    const a = guard.ctx.auth;
+    const client = a.client ?? {};
 
-  await storeContext(id, { ...guard.ctx, decision });
-
-  return c.json({
-    redirect_to: `${config.asBaseUrl}/authorizations/${encodeURIComponent(id)}/resume`,
+    return c.json({
+      client: {
+        client_id: stringIdOrAlias(client),
+        name: client.clientName,
+        logo_uri: client.logoUri,
+        policy_uri: client.policyUri,
+        tos_uri: client.tosUri,
+      },
+      needs: ["authentication", "consent"],
+      skip: a.action === "NO_INTERACTION",
+      login_hint: a.loginHint,
+      prompt: Array.isArray(a.prompts) ? a.prompts.join(" ") : undefined,
+      acr_values: a.acrs,
+      max_age: typeof a.maxAge === "number" && a.maxAge > 0 ? a.maxAge : undefined,
+      ui_locales: a.uiLocales,
+      subject: a.subject ?? null,
+      requested_scopes: (a.scopes ?? []).map((s) => ({ name: s.name, description: s.description })),
+      requested_claims: {
+        id_token: a.idTokenClaims,
+        userinfo: a.claimsAtUserInfo,
+        all: a.claims,
+      },
+      previously_granted_scopes: [],
+    });
   });
-});
 
-// --- GET /authorizations/:id/resume — browser returns from auth-ui ---------
+  // --- POST /api/authorizations/:id/decision — submit decision -------------
+  authorizations.post("/api/authorizations/:id/decision", async (c) => {
+    const id = c.req.param("id");
+    const guard = await requireJwsForAuthorization(c, id);
+    if (guard instanceof Response) return guard;
 
-authorizations.get("/authorizations/:id/resume", async (c) => {
-  const id = c.req.param("id");
-  const ctx = await loadContext(id);
-  if (!ctx) {
-    return c.json({ error: "invalid_request", error_description: "authorization not found or expired" }, 400);
-  }
-  if (!ctx.decision) {
-    return c.json(
-      { error: "invalid_request", error_description: "no decision recorded for this authorization" },
-      400,
-    );
-  }
+    const claim = guard.auth.payload.decision as DecisionClaim | undefined;
+    if (!claim || !claim.outcome) {
+      return c.json({ error: "invalid_token", error_description: "JWT missing decision claim" }, 401);
+    }
 
-  if (ctx.decision.outcome === "denied") {
-    const res = await authlete.authorization.fail({
+    const decision: Decision = claim.outcome === "denied"
+      ? {
+          outcome: "denied",
+          error: claim.error,
+          errorDescription: claim.error_description,
+        }
+      : {
+          outcome: "approved",
+          subject: claim.subject,
+          acr: claim.acr,
+          amr: claim.amr,
+          authenticatedAt: claim.authenticated_at,
+          grantedScopes: claim.granted_scopes,
+          userClaims: claim.user_claims,
+          grantedClaims: claim.granted_claims,
+        };
+
+    if (decision.outcome === "approved" && !decision.subject) {
+      return c.json(
+        { error: "invalid_request", error_description: "subject required for approved decisions" },
+        400,
+      );
+    }
+
+    await storeContext(config, id, { ...guard.ctx, decision });
+
+    return c.json({
+      redirect_to: `${config.asBaseUrl}/authorizations/${encodeURIComponent(id)}/resume`,
+    });
+  });
+
+  // --- GET /authorizations/:id/resume — browser returns from auth-ui -------
+  authorizations.get("/authorizations/:id/resume", async (c) => {
+    const id = c.req.param("id");
+    const ctx = await loadContext(config, id);
+    if (!ctx) {
+      return c.json({ error: "invalid_request", error_description: "authorization not found or expired" }, 400);
+    }
+    if (!ctx.decision) {
+      return c.json(
+        { error: "invalid_request", error_description: "no decision recorded for this authorization" },
+        400,
+      );
+    }
+
+    if (ctx.decision.outcome === "denied") {
+      const res = await authlete.authorization.fail({
+        serviceId: config.authleteServiceId,
+        authorizationFailRequest: {
+          ticket: id,
+          reason: mapDenyReason(ctx.decision.error),
+        },
+      });
+      return dispatchAuthleteAction(c, res.action, res.responseContent);
+    }
+
+    // TODO(claims-leakage): we should also pass `consentedClaims` here so
+    // Authlete persists it against the token and echoes it back at /userinfo.
+    // Currently we only pass claim VALUES via `claims`; Authlete auto-derives
+    // consentedClaims from scopes/values, which breaks once we support
+    // per-claim consent. See routes/userinfo.ts top-of-file TODO for the
+    // complete contract and the auth-ui-side changes needed.
+    const res = await authlete.authorization.issue({
       serviceId: config.authleteServiceId,
-      authorizationFailRequest: {
+      authorizationIssueRequest: {
         ticket: id,
-        reason: mapDenyReason(ctx.decision.error),
+        subject: ctx.decision.subject,
+        authTime: ctx.decision.authenticatedAt,
+        acr: ctx.decision.acr,
+        claims: ctx.decision.userClaims ? JSON.stringify(ctx.decision.userClaims) : undefined,
+        scopes: ctx.decision.grantedScopes,
       },
     });
     return dispatchAuthleteAction(c, res.action, res.responseContent);
-  }
-
-  // TODO(claims-leakage): we should also pass `consentedClaims` here so
-  // Authlete persists it against the token and echoes it back at /userinfo.
-  // Currently we only pass claim VALUES via `claims`; Authlete auto-derives
-  // consentedClaims from scopes/values, which breaks once we support
-  // per-claim consent. See routes/userinfo.ts top-of-file TODO for the
-  // complete contract and the auth-ui-side changes needed.
-  const res = await authlete.authorization.issue({
-    serviceId: config.authleteServiceId,
-    authorizationIssueRequest: {
-      ticket: id,
-      subject: ctx.decision.subject,
-      authTime: ctx.decision.authenticatedAt,
-      acr: ctx.decision.acr,
-      claims: ctx.decision.userClaims ? JSON.stringify(ctx.decision.userClaims) : undefined,
-      scopes: ctx.decision.grantedScopes,
-    },
   });
-  return dispatchAuthleteAction(c, res.action, res.responseContent);
-});
+
+  return authorizations;
+}
 
 // --- helpers ---------------------------------------------------------------
 

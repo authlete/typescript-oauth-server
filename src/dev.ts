@@ -1,14 +1,13 @@
 /**
- * Local development server.
- *
- * Wraps the Hono app in a Node HTTP listener for `npm run dev` / `npm start`.
- * Not used on Vercel, where the app's default export is served directly.
+ * Local development runner: wraps the standalone app in a Node HTTP listener.
+ * Not used on Vercel, which serves the app's default export directly.
  */
 
 import { serve } from "@hono/node-server";
 import app from "./server.js";
-import { config } from "./config.js";
+import { fromEnv } from "./app.js";
 
-serve({ fetch: app.fetch, port: config.port }, ({ port }) => {
+const { port } = fromEnv();
+serve({ fetch: app.fetch, port }, () => {
   console.log(`typescript-oauth-server listening on http://localhost:${port}`);
 });

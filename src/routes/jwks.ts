@@ -13,21 +13,24 @@
 
 import { Hono } from "hono";
 import type { JWK } from "jose";
-import { authlete } from "../authlete.js";
-import { config } from "../config.js";
+import type { Deps } from "../app.js";
 import { getAsPublicJwks } from "../jwks.js";
 
-export const jwks = new Hono();
+export function jwksRoutes({ authlete, config }: Deps) {
+  const jwks = new Hono();
 
-jwks.get("/oauth/jwks", async (c) => {
-  const authleteRes = await authlete.jwkSetEndpoint.serviceJwksGetApi({
-    serviceId: config.authleteServiceId,
-  });
-  const authleteKeys = (authleteRes?.keys as JWK[] | undefined) ?? [];
-  const asKeys = getAsPublicJwks().keys;
+  jwks.get("/oauth/jwks", async (c) => {
+    const authleteRes = await authlete.jwkSetEndpoint.serviceJwksGetApi({
+      serviceId: config.authleteServiceId,
+    });
+    const authleteKeys = (authleteRes?.keys as JWK[] | undefined) ?? [];
+    const asKeys = getAsPublicJwks(config).keys;
 
-  return c.body(JSON.stringify({ keys: [...authleteKeys, ...asKeys] }), 200, {
-    "content-type": "application/jwk-set+json",
-    "cache-control": "public, max-age=300",
+    return c.body(JSON.stringify({ keys: [...authleteKeys, ...asKeys] }), 200, {
+      "content-type": "application/jwk-set+json",
+      "cache-control": "public, max-age=300",
+    });
   });
-});
+
+  return jwks;
+}

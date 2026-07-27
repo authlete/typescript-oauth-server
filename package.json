@@ -1,6 +1,6 @@
 {
   "name": "@authlete/typescript-oauth-server",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "description": "TypeScript reference OAuth/OIDC Authorization Server built on Authlete 3.0",
@@ -8,12 +8,12 @@
   "engines": {
     "node": ">=20"
   },
-  "main": "./dist/server.js",
-  "types": "./dist/server.d.ts",
+  "main": "./dist/app.js",
+  "types": "./dist/app.d.ts",
   "exports": {
     ".": {
-      "types": "./dist/server.d.ts",
-      "default": "./dist/server.js"
+      "types": "./dist/app.d.ts",
+      "default": "./dist/app.js"
     }
   },
   "files": [

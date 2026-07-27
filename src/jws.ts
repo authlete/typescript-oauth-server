@@ -30,7 +30,7 @@ import {
   type KeyLike,
 } from "jose";
 import { randomUUID } from "node:crypto";
-import { config } from "./config.js";
+import type { Config } from "./config.js";
 import { getAsPrivateJwks, resolveSigningKey } from "./jwks.js";
 
 const JWKS_CACHE_MAX_AGE_MS = 5 * 60 * 1000;
@@ -43,10 +43,10 @@ type ResolvedSigningKey = { key: KeyLike | Uint8Array; kid: string; alg: string 
 let signingKeyPromise: Promise<ResolvedSigningKey> | undefined;
 let remoteAuthUiJwks: ReturnType<typeof createRemoteJWKSet> | undefined;
 
-async function getSigningKey(): Promise<ResolvedSigningKey> {
+async function getSigningKey(config: Config): Promise<ResolvedSigningKey> {
   if (!signingKeyPromise) {
     signingKeyPromise = (async () => {
-      const jwk = resolveSigningKey(getAsPrivateJwks(), {
+      const jwk = resolveSigningKey(getAsPrivateJwks(config), {
         kid: config.asSigningKid || undefined,
         alg: "ES256",
       });
@@ -62,7 +62,7 @@ async function getSigningKey(): Promise<ResolvedSigningKey> {
   return signingKeyPromise;
 }
 
-function getRemoteAuthUiJwks() {
+function getRemoteAuthUiJwks(config: Config) {
   if (!remoteAuthUiJwks) {
     remoteAuthUiJwks = createRemoteJWKSet(new URL(config.authUiJwksUri), {
       cacheMaxAge: JWKS_CACHE_MAX_AGE_MS,
@@ -74,10 +74,11 @@ function getRemoteAuthUiJwks() {
 
 /** Sign a JWT addressed to `auth-ui` (audience = AUTH_UI_ISSUER_ID by default). */
 export async function signJwt(
+  config: Config,
   payload: Record<string, unknown>,
   opts: { audience?: string; expiresInSeconds?: number } = {},
 ): Promise<string> {
-  const { key, kid, alg } = await getSigningKey();
+  const { key, kid, alg } = await getSigningKey(config);
   const audience = opts.audience ?? config.authUiIssuerId;
   const exp = opts.expiresInSeconds ?? DEFAULT_EXP_SECONDS;
 
@@ -93,8 +94,8 @@ export async function signJwt(
 }
 
 /** Verify a JWT from `auth-ui`. Throws on any verification failure. */
-export async function verifyJwt(jwt: string): Promise<JWTPayload> {
-  const { payload } = await jwtVerify(jwt, getRemoteAuthUiJwks(), {
+export async function verifyJwt(config: Config, jwt: string): Promise<JWTPayload> {
+  const { payload } = await jwtVerify(jwt, getRemoteAuthUiJwks(config), {
     issuer: config.authUiIssuerId,
     audience: config.asIssuerId,
     clockTolerance: CLOCK_TOLERANCE_SECONDS,
