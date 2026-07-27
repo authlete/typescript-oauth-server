@@ -1,10 +1,10 @@
 /**
- * The OAuth/OIDC Authorization Server as an app built from a config.
+ * The OAuth/OIDC Authorization Server, built from a Config.
  *
- * `createApp(config)` is the reusable entry: config in, Hono app out — no
- * global state, no request-scoped magic. The default export is the single
- * app built from the process env (what standalone and Vercel serve). A
- * multi-tenant host imports `createApp` and calls it per tenant.
+ * `createOAuthServer(config)` is the reusable entry: config in, request handler
+ * out — no global state, no request-scoped magic. Importing this module has no
+ * side effects (it reads no env): the standalone/Vercel entry (server.ts) builds
+ * the server from process env, and a multi-tenant host calls it once per tenant.
  */
 
 import { Hono } from "hono";
@@ -30,8 +30,8 @@ export interface Deps {
   config: Config;
 }
 
-export function createApp(cfg: Config): Hono {
-  const deps: Deps = { authlete: makeAuthlete(cfg), config: cfg };
+export function createOAuthServer(config: Config): Hono {
+  const deps: Deps = { authlete: makeAuthlete(config), config };
   const app = new Hono();
 
   // Cross-origin access for browser callers (e.g. the OAuth Playground). Driven
@@ -39,12 +39,12 @@ export function createApp(cfg: Config): Hono {
   // to endpoints a browser RP legitimately hits — OAuth + discovery + federation
   // registration. /api/authorizations/* is intentionally excluded; it's the
   // AS↔auth-ui interaction protocol, server-to-server only.
-  if (cfg.corsOrigins.length > 0) {
-    const allowAll = cfg.corsOrigins.includes("*");
+  if (config.corsOrigins.length > 0) {
+    const allowAll = config.corsOrigins.includes("*");
     const corsMiddleware = cors({
       origin: allowAll
         ? "*"
-        : (origin) => (cfg.corsOrigins.includes(origin) ? origin : null),
+        : (origin) => (config.corsOrigins.includes(origin) ? origin : null),
       allowMethods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
       allowHeaders: ["Authorization", "Content-Type", "DPoP"],
       exposeHeaders: ["WWW-Authenticate"],
@@ -62,9 +62,9 @@ export function createApp(cfg: Config): Hono {
     c.json({
       name: "typescript-oauth-server",
       status: "ok",
-      authlete: { baseUrl: cfg.authleteBaseUrl, serviceId: cfg.authleteServiceId },
-      interactionApp: cfg.authUiUrl,
-      discovery: `${cfg.asBaseUrl}/.well-known/openid-configuration`,
+      authlete: { baseUrl: config.authleteBaseUrl, serviceId: config.authleteServiceId },
+      interactionApp: config.authUiUrl,
+      discovery: `${config.asBaseUrl}/.well-known/openid-configuration`,
     }),
   );
   app.get("/health", (c) => c.json({ status: "ok" }));
@@ -84,6 +84,6 @@ export function createApp(cfg: Config): Hono {
   return app;
 }
 
-// Re-exported so a consumer can build a Config and call createApp — importing
-// this module runs no env reads (nothing here has side effects).
+// Re-exported so a consumer can build a Config and call createOAuthServer —
+// importing this module runs no env reads (nothing here has side effects).
 export { fromEnv, type Config } from "./config.js";

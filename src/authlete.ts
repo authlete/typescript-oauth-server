@@ -1,8 +1,8 @@
 /**
  * Builds the Authlete SDK client from a config.
  *
- * `createApp` calls this once (from env in single-tenant, per tenant in a
- * multi-tenant host). The client is then handed to the routes as a plain
+ * `createOAuthServer` calls this once (from env in single-tenant, per tenant
+ * in a multi-tenant host). The client is then handed to the routes as a plain
  * dependency — no module-global singleton, no request-scoped magic.
  */
 
