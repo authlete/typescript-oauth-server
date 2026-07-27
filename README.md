@@ -29,7 +29,7 @@ End-to-end is exercised by `auth-ui`'s smoke harness (`auth-ui/scripts/smoke-e2e
 
 1. Sign up at https://us.authlete.com and create a new Authlete 3.0 service.
 2. Register a test RP client in the service (Authorization Code + PKCE) for end-to-end testing.
-3. Generate an ES256 key pair for the AS's interaction-protocol signing. Register the public JWK with the Authlete service's JWKS (so it shows up in `/oauth/jwks`); keep the private JWK in this AS's env as `AS_SIGNING_JWKS`.
+3. Generate an ES256 key pair for the AS's interaction-protocol signing; keep the private JWK in this AS's env as `AS_SIGNING_JWKS`. Its public counterpart is published at `/.well-known/jwks.json` for `auth-ui` to verify the AS's signed messages — no Authlete registration needed.
 4. Populate the AS's `.env` from the Authlete console (service id + API token + URLs).
 5. `auth-ui` needs its own ES256 key pair and JWKS publication — see its setup docs.
 
@@ -42,21 +42,18 @@ Copy `.env.example` to `.env` and fill in:
 | `AUTHLETE_BASE_URL` | Authlete cluster URL (default `https://us.authlete.com`). |
 | `AUTHLETE_SERVICE_ID` | Numeric service id from the Authlete console. |
 | `AUTHLETE_API_TOKEN` | Service access token from the Authlete console. |
-| `AS_BASE_URL` | This server's public URL and issuer identity (RPs and `auth-ui` use it). On Vercel previews, falls back to `VERCEL_URL`. |
-| `AUTH_UI_URL` | Where `auth-ui` is reachable. |
-| `AS_SIGNING_JWKS` | The AS's private ES256 JWKS for signing interaction-protocol JWTs; its public counterpart is registered with Authlete (surfaces in `/oauth/jwks`). |
-| `AUTH_UI_JWKS_URI` | auth-ui's public JWKS, used to verify its JWTs (defaults to `${AUTH_UI_URL}/.well-known/jwks.json`). |
+| `AS_BASE_URL` | This server's public URL — its issuer identity (RPs and `auth-ui` use it). On Vercel previews, falls back to `VERCEL_URL`. |
+| `AUTH_UI_URL` | Where `auth-ui` is reachable — its identity and JWKS (`/.well-known/jwks.json`) are derived from this. |
+| `AS_SIGNING_JWKS` | The AS's private ES256 JWKS for signing interaction-protocol JWTs to `auth-ui`; its public counterpart is published at `/.well-known/jwks.json`. |
 | `PORT` | Listen port (default `3000`). |
-| `AS_CORS_ORIGINS` | Comma-separated allowlist of browser origins (e.g. the Authlete OAuth Playground). Empty disables CORS. |
-
-Optional overrides (`AS_ISSUER_ID`, `AUTH_UI_ISSUER_ID`, `AS_SIGNING_KID`) are documented in `.env.example`.
+| `CORS_ORIGINS` | Comma-separated allowlist of browser origins (e.g. the Authlete OAuth Playground). Empty disables CORS. |
 
 ## Deploy to Vercel
 
 The server is a Hono app with a `default` export, which Vercel runs with zero configuration — each route becomes a Vercel Function. The AS holds no per-transaction state, so it maps cleanly onto serverless.
 
 1. Import the GitHub repo into a Vercel project once. Every push then builds and deploys automatically, with a preview URL per pull request.
-2. Set the environment variables from **Configuration** in the Vercel project (there is no `.env` file in a deployment). `AS_SIGNING_JWKS` must be the same private JWKS whose public counterpart is registered with Authlete.
+2. Set the environment variables from **Configuration** in the Vercel project (there is no `.env` file in a deployment). `AS_SIGNING_JWKS` is the AS's interaction signing key; its public counterpart is served at `/.well-known/jwks.json`.
 3. Set `AS_BASE_URL` to your stable production domain — it is the issuer identity and must match what is registered with the Authlete service. Preview deployments fall back to their per-deploy `VERCEL_URL`, so leave `AS_BASE_URL` unset in the Preview environment if you want previews to self-configure.
 
 `vercel.json` pins functions to a US region (`iad1`) to keep latency to the Authlete US cluster low; adjust it for your cluster.
@@ -65,7 +62,7 @@ The server is a Hono app with a `default` export, which Vercel runs with zero co
 
 | Path | Spec | Purpose |
 |---|---|---|
-| `GET/POST /oauth/authorize` | OAuth 2.0, OIDC Core | Authorization endpoint — redirects to the interaction app for login + consent. |
+| `GET/POST /oauth/authorize` | OAuth 2.0, OIDC Core | Authorization endpoint — redirects to the interaction app (with a signed interaction token) for login + consent. |
 | `POST /oauth/token` | RFC 6749 §3.2 | Token endpoint — `authorization_code`, `refresh_token`, `client_credentials`. |
 | `GET/POST /oauth/userinfo` | OIDC Core §5.3 | UserInfo endpoint. |
 | `POST /oauth/par` | RFC 9126 | Pushed Authorization Requests. |
@@ -73,7 +70,8 @@ The server is a Hono app with a `default` export, which Vercel runs with zero co
 | `POST /oauth/revoke` | RFC 7009 | Token revocation. |
 | `POST /api/register` | RFC 7591 | Dynamic Client Registration. |
 | `GET/PUT/DELETE /api/register/{id}` | RFC 7592 | Client registration management (read / update / delete). |
-| `GET /oauth/jwks` | RFC 7517 | Service JWK Set (merges Authlete-managed keys + the AS's own interaction-protocol signing key). |
+| `GET /oauth/jwks` | RFC 7517 | OAuth JWK Set — the service's token-signing keys (Authlete-managed). |
+| `GET /.well-known/jwks.json` | [Interaction Protocol](./INTERACTION_PROTOCOL.md) | The AS's interaction-protocol public key, for `auth-ui` to verify the AS's signed messages. |
 | `GET /.well-known/openid-configuration` | OIDC Discovery | OIDC discovery metadata. |
 | `GET /.well-known/oauth-authorization-server` | RFC 8414 | OAuth AS metadata. |
 | `GET  /api/authorizations/{id}` | [Interaction Protocol](./INTERACTION_PROTOCOL.md) | Interaction app fetches in-flight authorization state (JWT-bearer auth). |
@@ -104,7 +102,7 @@ Decouple authentication and consent from the AS. The AS stays a thin, spec-compl
 ### State model
 
 - **Authlete owns per-transaction state.** Each in-flight authorization is an Authlete ticket; auth result, consent decision, and request context all hang off it.
-- **The AS holds none.** The browser carries only an opaque **authorization id**; the AS exchanges it with Authlete for context as needed. (One transitional exception is documented inline in `src/userstore.ts`.)
+- **The AS holds none.** The browser carries only an opaque **authorization id**; the AS exchanges it with Authlete for context as needed.
 - `auth-ui` holds the user session, not the OAuth transaction.
 
 ### Trust boundaries

@@ -4,7 +4,7 @@
  *   - signJwt: signs a JWT going to `auth-ui` using the AS's private
  *     key from AS_SIGNING_JWKS (resolved by jwks.ts's key resolver).
  *   - verifyJwt: verifies a JWT received from `auth-ui` against
- *     auth-ui's published JWKS (fetched and cached at AUTH_UI_JWKS_URI).
+ *     auth-ui's published JWKS (fetched from <AUTH_UI_URL>/.well-known/jwks.json).
  *
  * Standard envelope claims (iss, sub, aud, iat, exp, jti) are applied per
  * INTERACTION_PROTOCOL.md §4. Per-operation claims are passed in as the payload.
