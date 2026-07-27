@@ -1,6 +1,6 @@
 {
   "name": "@authlete/typescript-oauth-server",
-  "version": "0.1.0-pre",
+  "version": "0.1.0",
   "private": true,
   "type": "module",
   "description": "TypeScript reference OAuth/OIDC Authorization Server built on Authlete 3.0",
@@ -8,13 +8,25 @@
   "engines": {
     "node": ">=20"
   },
+  "main": "./dist/server.js",
+  "types": "./dist/server.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/server.d.ts",
+      "default": "./dist/server.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "dev": "tsx watch --env-file=.env src/dev.ts",
     "build": "tsc",
     "start": "node --env-file=.env dist/dev.js",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "lint": "eslint src"
+    "lint": "eslint src",
+    "prepare": "tsc"
   },
   "dependencies": {
     "@authlete/typescript-sdk": "^1.0.0",
