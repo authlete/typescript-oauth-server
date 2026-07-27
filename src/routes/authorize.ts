@@ -12,6 +12,7 @@ import { Hono } from "hono";
 import type { Deps } from "../app.js";
 import { storeContext } from "../context.js";
 import { dispatchAuthleteAction } from "../http.js";
+import { signJwt } from "../jws.js";
 
 export function authorizeRoutes({ authlete, config }: Deps) {
   const authorize = new Hono();
@@ -32,10 +33,19 @@ export function authorizeRoutes({ authlete, config }: Deps) {
           );
         }
         await storeContext(config, res.ticket, { v: 1, auth: res });
+        // Signed interaction token carrying the AS callback base, so auth-ui
+        // reaches the right deployment without static config. See §1 of
+        // INTERACTION_PROTOCOL.md. Long-lived: spans sign-in + consent.
+        const interaction = await signJwt(
+          config,
+          { authorization: res.ticket, as_base: config.asBaseUrl },
+          { expiresInSeconds: 600 },
+        );
         const target = new URL(
           `/authorizations/${encodeURIComponent(res.ticket)}`,
           config.authUiUrl,
         );
+        target.searchParams.set("interaction", interaction);
         return c.redirect(target.toString(), 302);
       }
       default:

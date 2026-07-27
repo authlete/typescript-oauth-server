@@ -1,20 +1,22 @@
 /**
- * /oauth/jwks — RFC 7517 JSON Web Key Set endpoint.
+ * JSON Web Key Set endpoints.
  *
- * Returns the union of:
- *   - Authlete's service JWKS (used by Authlete to sign ID tokens, JARM, etc.;
- *     private keys live inside Authlete).
- *   - The AS's component-protocol public keys (private keys live in this
- *     process's env; used to sign inter-component JWTs to `auth-ui`).
- *
- * Both are signing keys for "the AS as an entity"; verifiers distinguish by
- * `kid` from the JWS header.
+ *   /oauth/jwks            — the service's OAuth signing keys (Authlete signs
+ *                            ID tokens, JARM, etc.). Advertised via discovery
+ *                            for RPs to verify tokens.
+ *   /.well-known/jwks.json — the AS's own interaction key, for auth-ui to verify
+ *                            the AS's signed messages. See INTERACTION_PROTOCOL.md §1.
  */
 
 import { Hono } from "hono";
 import type { JWK } from "jose";
 import type { Deps } from "../app.js";
 import { getAsPublicJwks } from "../jwks.js";
+
+const JWKS_HEADERS = {
+  "content-type": "application/jwk-set+json",
+  "cache-control": "public, max-age=300",
+} as const;
 
 export function jwksRoutes({ authlete, config }: Deps) {
   const jwks = new Hono();
@@ -23,14 +25,13 @@ export function jwksRoutes({ authlete, config }: Deps) {
     const authleteRes = await authlete.jwkSetEndpoint.serviceJwksGetApi({
       serviceId: config.authleteServiceId,
     });
-    const authleteKeys = (authleteRes?.keys as JWK[] | undefined) ?? [];
-    const asKeys = getAsPublicJwks(config).keys;
-
-    return c.body(JSON.stringify({ keys: [...authleteKeys, ...asKeys] }), 200, {
-      "content-type": "application/jwk-set+json",
-      "cache-control": "public, max-age=300",
-    });
+    const keys = (authleteRes?.keys as JWK[] | undefined) ?? [];
+    return c.body(JSON.stringify({ keys }), 200, JWKS_HEADERS);
   });
+
+  jwks.get("/.well-known/jwks.json", (c) =>
+    c.body(JSON.stringify(getAsPublicJwks(config)), 200, JWKS_HEADERS),
+  );
 
   return jwks;
 }

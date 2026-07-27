@@ -23,7 +23,9 @@ but the protocol does not depend on it.
 
 ## Trust model
 
-- Each peer has a key pair and publishes its public keys as a JWKS.
+- Each peer has a key pair and publishes its public keys as a JWKS at
+  `<base URL>/.well-known/jwks.json`. The other peer derives that location from
+  the peer's base URL — there is no separately-configured JWKS URI.
 - Each peer verifies the other's signed messages against the published JWKS.
 - Every inter-peer message is a per-request signed JWT (same crypto primitive
   as RFC 7521 / 7523, applied per call — no intermediate bearer tokens).
@@ -56,8 +58,10 @@ Claims (always):
   sub  caller's issuer id           // service is its own subject
   aud  receiver's issuer id
   iat  unix seconds
-  exp  iat + 60   (backchannel)
-       iat + 300  (frontchannel — tolerates user interaction time)
+  exp  short-lived; depends on the message:
+       · server-to-server call tokens (§1.a, §2.a, §4):        iat + 60
+       · the §1 interaction token (spans the user's sign-in+consent): iat + 600
+       · frontchannel tokens carried across interaction (§1, §2.b): iat + 300
   jti  uuid v4
 ```
 
@@ -68,8 +72,8 @@ Per-operation claims are layered on top (see Operations below).
 Every receiver, every inbound JWT:
 
 1. Parse the compact JWT; read `kid` from the header.
-2. Resolve the caller's JWKS by its configured URI; cache with a 5-minute TTL.
-   Look up the key by `kid`.
+2. Fetch the caller's JWKS from `<caller base URL>/.well-known/jwks.json`
+   (cache with a 5-minute TTL); look up the key by `kid`.
 3. Verify the signature.
 4. Verify `iss` equals the configured caller identifier.
 5. Verify `aud` equals the receiver's own identifier.
@@ -81,7 +85,8 @@ Every receiver, every inbound JWT:
 
 The AS keeps **no `jti` store**. Replay protection comes from:
 
-- **Short `exp`** (60 s backchannel / 300 s frontchannel).
+- **Short `exp`** (see the envelope above — 60 s for calls, longer only for the
+  browser-carried interaction/frontchannel tokens).
 - **Authorization-id binding** for non-idempotent operations. The id is backed
   by the AS's single-use transaction state, so a replayed JWT for a completed
   authorization fails inside the AS's state engine.
@@ -104,7 +109,7 @@ The verifier picks by the `kid` from the inbound JWS header; no fallback.
 
 ```
 Browser paths (top-level — no /api/ prefix):
-  AS → interaction app:   <APP_URL>/authorizations/<id>[?details=<jwt>]
+  AS → interaction app:   <APP_URL>/authorizations/<id>?interaction=<jwt>
   interaction app → AS:   <AS_URL>/authorizations/<id>/resume[?decision=<jwt>]
 
 API paths (server-to-server JSON, JWT in Authorization: Bearer):
@@ -127,16 +132,36 @@ Conventions:
 The AS, after processing `/oauth/authorize`, redirects the browser:
 
 ```
-<APP_URL>/authorizations/<id>[?details=<jwt>]
+<APP_URL>/authorizations/<id>?interaction=<jwt>
 ```
 
-- backchannel: no JWT in URL. The app fetches the state next.
-- frontchannel: `?details=<jwt>` carries the state inline.
+The `interaction` JWT is a **signed routing token**. It carries the AS's own
+callback base URL (`as_base`), so the interaction app calls back to the correct
+AS deployment **without holding that URL in static config**. The callback base
+is the one value that varies per deployment — and per tenant in a multi-tenant
+host. Trust identity (`iss`/`aud`, both JWKS) stays static config on both sides;
+only the routing base rides as data.
 
-JWT (frontchannel only):
+The token is **routing-only — no user data** — so carrying it on the redirect is
+safe in both channels (unlike the frontchannel state token below).
+
+Interaction JWT claims:
 ```jsonc
-{ "authorization": "<id>", "details": { /* authorization state, see §1.a */ } }
+{
+  "authorization": "<id>",              // MUST equal the <id> in the URL path
+  "as_base": "https://as.example.com",  // AS origin to call back to (§1.a, §2)
+
+  // frontchannel only — the full authorization state inline (see §1.a),
+  // letting the app skip the §1.a GET:
+  "details": { /* ... */ }
+}
 ```
+
+The interaction app verifies the token (signature against the AS JWKS,
+`iss`/`aud`, `exp`), checks `authorization` matches the URL `<id>`, and then uses
+`as_base` as the origin for the calls in §1.a and §2. Because `as_base` is inside
+the signed token and a single trusted AS identity is assumed, a token that
+verifies is proof the base is genuine — no separate origin allow-list is needed.
 
 #### 1.a. `GET /api/authorizations/{id}` — fetch in-flight state (backchannel)
 
@@ -231,11 +256,14 @@ Each peer needs:
 
 | Concept | Notes |
 |---|---|
-| Own issuer id | Stable identifier used in JWT `iss`/`aud`. Typically the deployment's base URL. |
-| Peer issuer id | The other side's stable identifier. |
-| Peer JWKS URI | Where to fetch the other side's public keyset. |
+| Own base URL | The deployment's base URL — its `iss`/`aud`, and the origin of its published JWKS (`/.well-known/jwks.json`). |
+| Peer base URL | The other side's base URL. Its identity **and** JWKS both derive from this — no separate JWKS URI. |
 | Own private JWKS | For signing outbound JWTs. May contain one or many keys. |
 | Channel mode | `backchannel` (prod) or `frontchannel` (dev only). |
+
+The interaction app does **not** configure the AS's callback base — it receives
+that per-request in the §1 interaction token. It still configures the AS's
+*identity* (issuer id + JWKS URI) statically, as the trust anchor.
 
 Env-var names are implementation-specific; see each repo's `.env.example`.
 

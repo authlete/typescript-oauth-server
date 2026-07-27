@@ -35,7 +35,7 @@ export function createOAuthServer(config: Config): Hono {
   const app = new Hono();
 
   // Cross-origin access for browser callers (e.g. the OAuth Playground). Driven
-  // by AS_CORS_ORIGINS so each deployment configures its own allowlist. Scoped
+  // by CORS_ORIGINS so each deployment configures its own allowlist. Scoped
   // to endpoints a browser RP legitimately hits — OAuth + discovery + federation
   // registration. /api/authorizations/* is intentionally excluded; it's the
   // AS↔auth-ui interaction protocol, server-to-server only.

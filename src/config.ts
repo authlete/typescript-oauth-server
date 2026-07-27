@@ -39,7 +39,6 @@ export interface Config {
   asIssuerId: string;
   authUiIssuerId: string;
   authUiJwksUri: string;
-  interactionChannel: "backchannel" | "frontchannel";
   asSigningJwks: string;
   asSigningKid: string;
 }
@@ -67,12 +66,13 @@ export function fromEnv(): Config {
     authUiUrl,
     port: parseInt(optional("PORT", "3000"), 10),
     nodeEnv: optional("NODE_ENV", "development"),
-    corsOrigins: list("AS_CORS_ORIGINS"),
-    asIssuerId: optional("AS_ISSUER_ID", asBaseUrl),
-    authUiIssuerId: optional("AUTH_UI_ISSUER_ID", authUiUrl),
-    authUiJwksUri: optional("AUTH_UI_JWKS_URI", `${authUiUrl}/.well-known/jwks.json`),
-    interactionChannel: optional("INTERACTION_CHANNEL", "backchannel") as "backchannel" | "frontchannel",
+    corsOrigins: list("CORS_ORIGINS"),
+    // Own identity is the base URL; the peer's identity and JWKS derive from its
+    // URL — same convention on both sides of the interaction protocol.
+    asIssuerId: asBaseUrl,
+    authUiIssuerId: authUiUrl,
+    authUiJwksUri: `${authUiUrl}/.well-known/jwks.json`,
     asSigningJwks: optional("AS_SIGNING_JWKS", ""),
-    asSigningKid: optional("AS_SIGNING_KID", ""),
+    asSigningKid: "",
   };
 }

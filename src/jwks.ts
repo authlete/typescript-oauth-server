@@ -3,7 +3,7 @@
  *
  * Owns:
  *   - parsing the AS's private JWKS from env into structured keys,
- *   - producing the public JWKS for /oauth/jwks (merged with Authlete's),
+ *   - producing the public JWKS published at /.well-known/jwks.json,
  *   - selecting the signing key per the resolver rules in INTERACTION_PROTOCOL.md §5.
  */
 
@@ -74,7 +74,7 @@ export function getAsPrivateJwks(config: Config): JWKS {
   return cachedAsPrivateJwks;
 }
 
-/** Memoized AS public JWKS — published via /oauth/jwks (merged with Authlete's). */
+/** Memoized AS public JWKS — published at /.well-known/jwks.json. */
 export function getAsPublicJwks(config: Config): JWKS {
   if (!cachedAsPublicJwks) {
     cachedAsPublicJwks = config.asSigningJwks ? publicJwks(getAsPrivateJwks(config)) : { keys: [] };

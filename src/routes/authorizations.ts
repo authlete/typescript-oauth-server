@@ -1,5 +1,5 @@
 /**
- * Component protocol surface on the AS.
+ * Interaction protocol surface on the AS.
  *
  *   API (called by auth-ui server-to-server, JWT-bearer-authenticated):
  *     GET  /api/authorizations/{id}              — fetch in-flight state
