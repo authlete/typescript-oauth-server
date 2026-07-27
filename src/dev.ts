@@ -1,13 +1,12 @@
 /**
- * Local development runner: hosts the OAuth server in a Node HTTP listener.
- * Not used on Vercel, which serves the server's default export directly.
+ * Local development runner: hosts the standalone server in a Node HTTP listener.
+ * A deployed standalone server instead has the platform invoke app.ts's default export.
  */
 
 import { serve } from "@hono/node-server";
-import server from "./server.js";
-import { fromEnv } from "./app.js";
+import app, { fromEnv } from "./app.js";
 
 const { port } = fromEnv();
-serve({ fetch: server.fetch, port }, () => {
+serve({ fetch: app.fetch, port }, () => {
   console.log(`typescript-oauth-server listening on http://localhost:${port}`);
 });

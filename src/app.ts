@@ -1,16 +1,15 @@
 /**
- * The OAuth/OIDC Authorization Server, built from a Config.
+ * The OAuth/OIDC Authorization Server.
  *
- * `createOAuthServer(config)` is the reusable entry: config in, request handler
- * out — no global state, no request-scoped magic. Importing this module has no
- * side effects (it reads no env): the standalone/Vercel entry (server.ts) builds
- * the server from process env, and a multi-tenant host calls it once per tenant.
+ * `createOAuthServer(config)` is the factory a multi-tenant host calls per tenant.
+ * The default export is the standalone server, built lazily on the first request
+ * so importing this module reads no env (the factory stays side-effect-free).
  */
 
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import type { Authlete } from "@authlete/typescript-sdk/authlete";
-import type { Config } from "./config.js";
+import { fromEnv, type Config } from "./config.js";
 import { makeAuthlete } from "./authlete.js";
 import { wellKnownRoutes } from "./routes/well-known.js";
 import { authorizeRoutes } from "./routes/authorize.js";
@@ -84,6 +83,15 @@ export function createOAuthServer(config: Config): Hono {
   return app;
 }
 
-// Re-exported so a consumer can build a Config and call createOAuthServer —
-// importing this module runs no env reads (nothing here has side effects).
 export { fromEnv, type Config } from "./config.js";
+
+// Default export: the standalone server. Built lazily on the first request so
+// importing this module stays side-effect-free (env is read only when serving,
+// never at import). The deployment serves this for every route; dev.ts runs it locally.
+let standalone: Hono | undefined;
+export default {
+  fetch(request: Request) {
+    standalone ??= createOAuthServer(fromEnv());
+    return standalone.fetch(request);
+  },
+};
