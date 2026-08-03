@@ -20,7 +20,7 @@ export function authorizeRoutes({ authlete, config }: Deps) {
   async function handleAuthorize(c: Context, parameters: string): Promise<Response> {
     const res = await authlete.authorization.processRequest({
       serviceId: config.authleteServiceId,
-      authorizationRequest: { parameters },
+      authorizationRequest: { parameters: forceLoginOnZeroMaxAge(parameters) },
     });
 
     switch (res.action) {
@@ -51,6 +51,19 @@ export function authorizeRoutes({ authlete, config }: Deps) {
       default:
         return dispatchAuthleteAction(c, res.action, res.responseContent);
     }
+  }
+
+  // Workaround: Authlete collapses `max_age=0` and absent to the same response
+  // (maxAge 0, no prompt), so it can't signal that re-auth is required. Since
+  // max_age=0 is equivalent to prompt=login, inject the latter at the edge and
+  // let Authlete drive the rest. Remove once Authlete distinguishes the two.
+  function forceLoginOnZeroMaxAge(parameters: string): string {
+    const params = new URLSearchParams(parameters);
+    if (params.get("max_age") !== "0") return parameters;
+    const prompts = new Set((params.get("prompt") ?? "").split(/\s+/).filter(Boolean));
+    prompts.add("login");
+    params.set("prompt", [...prompts].join(" "));
+    return params.toString();
   }
 
   authorize.get("/oauth/authorize", async (c) => {

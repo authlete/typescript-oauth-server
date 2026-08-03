@@ -2,7 +2,7 @@
  * Between-steps context store backed by Authlete's ticket/info + ticket/update.
  *
  * The AS holds no local state. Data that must survive across the authorization
- * flow (the /auth/authorization response, then the user's decision) is
+ * flow (the /auth/authorization response, then each interaction's outcome) is
  * JSON-encoded and attached to the Authlete ticket itself.
  *
  * Direct fetch, not the SDK: the published SDK's spec declares ticket/update's
@@ -14,29 +14,30 @@
 import type { AuthorizationResponse } from "@authlete/typescript-sdk/models/authorizationresponse";
 import type { Config } from "./config.js";
 
-export type Decision =
+/** Outcome of the authenticate interaction (INTERACTION_PROTOCOL.md §2). */
+export type AuthOutcome =
   | {
-      outcome: "approved";
       subject: string;
       acr?: string;
       amr?: string[];
       authenticatedAt?: number;
-      grantedScopes?: string[];
       /** Actual user claim values (name, email, …) passed to Authlete /issue. */
       userClaims?: Record<string, unknown>;
-      /** OIDC claims-request shape echoed back from the RP, if needed. */
-      grantedClaims?: Record<string, unknown>;
     }
-  | {
-      outcome: "denied";
-      error: string;
-      errorDescription?: string;
-    };
+  | { error: string; errorDescription?: string };
+
+/** Outcome of the consent interaction. */
+export type ConsentOutcome =
+  | { grantedScopes: string[] }
+  | { error: string; errorDescription?: string };
 
 export type StoredContext = {
   v: 1;
   auth: AuthorizationResponse;
-  decision?: Decision;
+  authOutcome?: AuthOutcome;
+  /** Requested scopes the subject had already granted — unioned in at /issue. */
+  already?: string[];
+  consentOutcome?: ConsentOutcome;
 };
 
 function authleteUrl(config: Config, path: string): string {

@@ -114,7 +114,7 @@ Browser paths (top-level — no /api/ prefix):
 
 API paths (server-to-server JSON, JWT in Authorization: Bearer):
   interaction app → AS:   GET  /api/authorizations/{id}
-                          POST /api/authorizations/{id}/decision
+                          POST /api/authorizations/{id}/outcome
   AS → interaction app:   GET  /api/users/{id}
 ```
 
@@ -163,68 +163,76 @@ The interaction app verifies the token (signature against the AS JWKS,
 the signed token and a single trusted AS identity is assumed, a token that
 verifies is proof the base is genuine — no separate origin allow-list is needed.
 
-#### 1.a. `GET /api/authorizations/{id}` — fetch in-flight state (backchannel)
+#### 1.a. `GET /api/authorizations/{id}` — the next required interaction
 
 **Direction:** interaction app → AS.
 **JWT claims:** `authorization: <id from URL>`.
-**Response (JSON):**
+**Response (JSON):** the client (for display) plus the first interaction. The AS
+orchestrates two interactions — **authenticate**, then **consent** — so the first
+step is always `authenticate`.
 ```jsonc
 {
   "client": { "client_id", "name", "logo_uri", "policy_uri", "tos_uri" },
-  "needs": ["authentication", "consent"],
-  "skip": false,                            // true for OIDC prompt=none short-circuit
-  "login_hint": "...",
-  "prompt": "login consent",
-  "acr_values": ["..."],
-  "max_age": 3600,
-  "ui_locales": ["en-US"],
-  "subject": null,
-  "requested_scopes": [{ "name": "openid", "description": "..." }],
-  "requested_claims": { "id_token": {...}, "userinfo": {...}, "all": [...] },
-  "previously_granted_scopes": []
-}
-```
-
-### 2. Interaction app → AS: submit the user's decision
-
-#### 2.a. `POST /api/authorizations/{id}/decision` (backchannel)
-
-**JWT claims:**
-```jsonc
-{
-  "authorization": "<id>",
-  "decision": {
-    "outcome": "approved" | "denied",
-
-    // when approved:
-    "subject": "<user-id>",
-    "acr": "<acr-value>",
-    "amr": ["pwd"],
-    "authenticated_at": 1717545600,
-    "granted_scopes": ["openid", "email"],
-    "user_claims": { "sub": "...", "name": "...", "email": "...", "email_verified": true },
-
-    // when denied:
-    "error": "access_denied",
-    "error_description": "User denied the authorization request"
+  "next": "authenticate",
+  "authenticate": {
+    "acr_values": ["..."],
+    "max_age": 3600,
+    "prompt": "login",
+    "login_hint": "...",
+    "ui_locales": ["en-US"]
   }
 }
 ```
-**Response:** `{ "redirect_to": "<AS_URL>/authorizations/<id>/resume" }`.
-The app then redirects the browser to `redirect_to`.
 
-#### 2.b. Frontchannel variant
+### 2. Interaction app → AS: report an interaction outcome
 
-In frontchannel mode the app skips the POST and embeds the decision in the
-resume redirect: `<AS_URL>/authorizations/<id>/resume?decision=<jwt>` with the
-same decision JWT shape.
+#### 2.a. `POST /api/authorizations/{id}/outcome` (backchannel)
 
-### 3. AS resume: `GET /authorizations/{id}/resume[?decision=<jwt>]`
+The app reports the outcome of one interaction; the AS reconciles and replies with
+what's `next` (`authenticate` | `consent` | `done`). The app loops until `done`,
+then redirects the browser to `redirect_to`.
 
-Browser-hit on the AS side. The AS reads the prior decision (backchannel) or
-verifies the inline `?decision=<jwt>` (frontchannel), completes the underlying
-OAuth flow, and redirects the browser to the RP's `redirect_uri`. The
-authorization code never passes through the interaction app.
+**JWT claims** — the `outcome`:
+```jsonc
+// authenticate outcome
+{ "authorization": "<id>", "outcome": {
+    "type": "authenticate",
+    "subject": "<user-id>", "acr": "<acr>", "amr": ["pwd"],
+    "authenticated_at": 1717545600,
+    "user_claims": { "sub": "...", "name": "...", "email": "...", "email_verified": true } } }
+
+// consent outcome
+{ "authorization": "<id>", "outcome": { "type": "consent", "granted_scopes": ["openid", "email"] } }
+
+// either interaction, on rejection
+{ "authorization": "<id>", "outcome": {
+    "type": "authenticate" | "consent",
+    "error": "login_required" | "access_denied", "error_description": "..." } }
+```
+
+**Response** — the next step:
+```jsonc
+{ "next": "consent", "consent": {
+    "new":             [{ "name": "approve:expense", "description": "..." }],  // still needs consent
+    "already_granted": [{ "name": "read:expense",    "description": "..." }]   // shown read-only
+} }
+// or, nothing left to do:
+{ "next": "done", "redirect_to": "<AS_URL>/authorizations/<id>/resume" }
+```
+
+The AS computes the consent step for the authenticated subject:
+`new = requested − already-granted` (Authlete's `mergedGrantedScopes`). If nothing
+is new and `prompt=consent` is absent, it skips consent and replies `done`. Any
+granted-scopes lookup failure falls back to full consent (every requested scope is
+`new`), so an AS that never uses the API behaves exactly as before.
+
+### 3. AS resume: `GET /authorizations/{id}/resume`
+
+Browser-hit on the AS side, once the app has looped to `done`. The AS completes the
+OAuth flow from the accumulated outcomes — `issue` with the authenticated subject
+and the final scope grant (already-granted ∪ newly consented), or `fail` if either
+interaction was rejected — and redirects the browser to the RP's `redirect_uri`.
+The authorization code never passes through the interaction app.
 
 ### 4. AS → interaction app: fetch the user resource (backchannel)
 
