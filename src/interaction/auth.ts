@@ -8,7 +8,7 @@ import type { Context } from "hono";
 import type { JWTPayload } from "jose";
 import type { Config } from "../config.js";
 import { extractBearer, noStoreJsonHeaders } from "../http.js";
-import { verifyJwt } from "../jws.js";
+import { verifyJwt } from "./jwt.js";
 
 const CHALLENGE = 'Bearer realm="authlete-as", error="invalid_token"';
 
@@ -20,11 +20,17 @@ export type InteractionAuthContext = {
  * Validate an inbound interaction protocol JWT. Returns either a verified
  * payload context or a `Response` the caller should return verbatim.
  */
-export async function requireJws(c: Context, config: Config): Promise<InteractionAuthContext | Response> {
+export async function requireJws(
+  c: Context,
+  config: Config,
+): Promise<InteractionAuthContext | Response> {
   const jwt = extractBearer(c.req.header("authorization"));
   if (!jwt) {
     return c.body(
-      JSON.stringify({ error: "invalid_request", error_description: "missing Authorization Bearer JWT" }),
+      JSON.stringify({
+        error: "invalid_request",
+        error_description: "missing Authorization Bearer JWT",
+      }),
       401,
       { ...noStoreJsonHeaders, "www-authenticate": CHALLENGE },
     );

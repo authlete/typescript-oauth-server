@@ -1,6 +1,7 @@
 /**
- * Local development runner: hosts the standalone server in a Node HTTP listener.
- * A deployed standalone server instead has the platform invoke app.ts's default export.
+ * Server entry point: hosts the app in a Node HTTP listener. Used by
+ * `npm run dev` and `npm start`; serverless deployments instead invoke
+ * app.ts's default export directly.
  */
 
 import { serve } from "@hono/node-server";

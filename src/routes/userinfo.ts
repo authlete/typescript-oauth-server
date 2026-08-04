@@ -12,55 +12,25 @@
  * resource from `GET <AUTH_UI>/api/users/{id}` and projects it onto the OIDC
  * claim names the user consented to release.
  *
- * ─────────────────────────────────────────────────────────────────────────────
- * TODO(claims-leakage): The end-to-end consent contract is INCOMPLETE.
- *
- * Per Authlete's KB on customising userinfo claims, the right model is:
- *   • The OP MUST explicitly pass `consentedClaims` (the list of claim names
- *     the end-user agreed to release) at /auth/authorization/issue time.
- *   • Authlete persists `consentedClaims` against the access token; it then
- *     echoes it back in /auth/userinfo and /auth/introspection.
- *   • The OP, at /userinfo handling time, reads `consentedClaims` from the
- *     /auth/userinfo response and returns ONLY those claim values via
- *     /auth/userinfo/issue.
- *
- * What this AS does today (and what's still broken):
- *   ✓ /userinfo reads `consentedClaims` (fallback `claims`, then []) and
- *     projects the user resource through that filter — see `projectClaims`.
- *   ✗ /authorizations/{id}/resume calls /auth/authorization/issue WITHOUT
- *     an explicit `consentedClaims` parameter (see routes/authorizations.ts).
- *     The fact that `consentedClaims` shows up populated in /auth/userinfo
- *     responses today is INCIDENTAL — Authlete is auto-deriving it from
- *     either the granted scopes or the claim VALUES we pass. That auto-
- *     derivation is not contractual and can quietly become wrong when:
- *       · auth-ui supports per-claim consent (user unchecks a specific claim
- *         under a granted scope) — Authlete won't know the user de-selected
- *         it, so /userinfo will keep returning it.
- *       · The RP requests claims via the OIDC `claims` request parameter
- *         (RFC 7517 §5.5) — Authlete may include all requested ones in
- *         consentedClaims even though the user only saw scope-level consent.
- *   ✗ auth-ui's decision payload only carries `granted_scopes`. It does NOT
- *     carry the per-claim grant set. We need a `granted_claims` (claim-name
- *     list) field on the Decision and we must forward it to Authlete at
- *     /issue time as `consentedClaims`.
- *
- * Properly fixing this requires changes on three layers in lock-step:
- *   1. auth-ui consent UI: support per-claim toggles (or derive the granted
- *      claim list from the granted scopes if not exposing per-claim UI).
- *   2. auth-ui → AS decision JWT: add `granted_claims: string[]`.
- *   3. AS /authorizations/{id}/resume: pass `consentedClaims` to Authlete
- *      /auth/authorization/issue.
- * Once that's done, the filter here becomes authoritative end-to-end.
- *
- * Reference: https://www.authlete.com/kb/oauth-and-openid-connect/userinfo-endpoint/customize-userinfo-claims/
- * ─────────────────────────────────────────────────────────────────────────────
+ * TODO(claims-leakage): per-claim consent is not yet plumbed end-to-end. The
+ * outcome payload from auth-ui carries only `granted_scopes`, and /resume does
+ * not pass `consentedClaims` to Authlete /auth/authorization/issue — so the
+ * `consentedClaims` filter used below is Authlete's scope-derived default, not
+ * an explicit user grant. Fix requires a `granted_claims` field in the
+ * interaction protocol plus forwarding it at /issue time. See
+ * https://www.authlete.com/kb/oauth-and-openid-connect/userinfo-endpoint/customize-userinfo-claims/
  */
 
 import type { Context } from "hono";
 import { Hono } from "hono";
 import type { Deps } from "../app.js";
-import { bearerAuthChallenge, bearerChallenge, extractBearer, noStoreJsonHeaders } from "../http.js";
-import { fetchUser } from "../auth-ui-client.js";
+import {
+  bearerAuthChallenge,
+  bearerChallenge,
+  extractBearer,
+  noStoreJsonHeaders,
+} from "../http.js";
+import { fetchUser } from "../interaction/auth-ui.js";
 
 export function userinfoRoutes({ authlete, config }: Deps) {
   const userinfo = new Hono();
@@ -125,7 +95,11 @@ export function userinfoRoutes({ authlete, config }: Deps) {
   return userinfo;
 }
 
-function mapErrorAction(c: Context, action: string | undefined, responseContent: string | undefined): Response {
+function mapErrorAction(
+  c: Context,
+  action: string | undefined,
+  responseContent: string | undefined,
+): Response {
   const wwwAuth = responseContent || bearerAuthChallenge;
   switch (action) {
     case "UNAUTHORIZED":
@@ -167,5 +141,10 @@ function projectClaims(user: Record<string, unknown>, wanted: string[]): Record<
 
 /** Authorization header → form body → query string (RFC 6750 §2). */
 function extractAccessToken(c: Context, formToken?: string): string | undefined {
-  return extractBearer(c.req.header("authorization")) || formToken || c.req.query("access_token") || undefined;
+  return (
+    extractBearer(c.req.header("authorization")) ||
+    formToken ||
+    c.req.query("access_token") ||
+    undefined
+  );
 }

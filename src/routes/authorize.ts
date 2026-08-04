@@ -4,15 +4,15 @@
  * Standard OAuth 2.0 / OIDC authorization endpoint. On INTERACTION /
  * NO_INTERACTION, stores the authorization context and redirects the browser
  * to auth-ui at <AUTH_UI_URL>/authorizations/<id>. Completion happens at
- * /authorizations/{id}/resume — see authorizations.ts.
+ * /authorizations/{id}/resume — see interaction/routes.ts.
  */
 
 import type { Context } from "hono";
 import { Hono } from "hono";
 import type { Deps } from "../app.js";
-import { storeContext } from "../context.js";
+import { storeContext } from "../login-consent.js";
 import { dispatchAuthleteAction } from "../http.js";
-import { signJwt } from "../jws.js";
+import { signJwt } from "../interaction/jwt.js";
 
 export function authorizeRoutes({ authlete, config }: Deps) {
   const authorize = new Hono();
@@ -28,7 +28,10 @@ export function authorizeRoutes({ authlete, config }: Deps) {
       case "NO_INTERACTION": {
         if (!res.ticket) {
           return c.json(
-            { error: "server_error", error_description: "Authlete returned INTERACTION without a ticket" },
+            {
+              error: "server_error",
+              error_description: "Authlete returned INTERACTION without a ticket",
+            },
             500,
           );
         }

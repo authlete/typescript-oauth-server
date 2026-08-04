@@ -6,11 +6,9 @@
  * requests / unknown client.
  */
 
-import type { Context } from "hono";
 import { Hono } from "hono";
 import type { Deps } from "../app.js";
-import { basicCredsFor } from "../auth/basic.js";
-import { basicChallengeHeaders, noStoreJsonHeaders } from "../http.js";
+import { basicChallengeHeaders, basicCredsFor, sendAuthleteAction } from "../http.js";
 
 export function revokeRoutes({ authlete, config }: Deps) {
   const revoke = new Hono();
@@ -21,23 +19,13 @@ export function revokeRoutes({ authlete, config }: Deps) {
       serviceId: config.authleteServiceId,
       revocationRequest: { parameters, ...basicCredsFor(c) },
     });
-    return dispatch(c, res.action, res.responseContent);
+    return sendAuthleteAction(c, res, {
+      OK: { status: 200, body: "" },
+      INVALID_CLIENT: { status: 401, headers: basicChallengeHeaders },
+      BAD_REQUEST: 400,
+      INTERNAL_SERVER_ERROR: 500,
+    });
   });
 
   return revoke;
-}
-
-function dispatch(c: Context, action: string | undefined, responseContent: string | undefined): Response {
-  const body = responseContent ?? "";
-  switch (action) {
-    case "OK":
-      return c.body("", 200, noStoreJsonHeaders);
-    case "INVALID_CLIENT":
-      return c.body(body, 401, basicChallengeHeaders);
-    case "BAD_REQUEST":
-      return c.body(body, 400, noStoreJsonHeaders);
-    case "INTERNAL_SERVER_ERROR":
-    default:
-      return c.body(body, 500, noStoreJsonHeaders);
-  }
 }

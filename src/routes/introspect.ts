@@ -11,7 +11,7 @@
 
 import { Hono } from "hono";
 import type { Deps } from "../app.js";
-import { basicChallengeHeaders, noStoreJsonHeaders } from "../http.js";
+import { basicChallengeHeaders, noStoreHeaders, sendAuthleteAction } from "../http.js";
 
 export function introspectRoutes({ authlete, config }: Deps) {
   const introspect = new Hono();
@@ -30,22 +30,15 @@ export function introspectRoutes({ authlete, config }: Deps) {
       serviceId: config.authleteServiceId,
       standardIntrospectionRequest: { parameters },
     });
-
-    const body = res.responseContent ?? "";
-    switch (res.action) {
-      case "OK":
-        return c.body(body || '{"active":false}', 200, noStoreJsonHeaders);
-      case "JWT":
-        return c.body(body, 200, {
-          ...noStoreJsonHeaders,
-          "content-type": "application/token-introspection+jwt",
-        });
-      case "BAD_REQUEST":
-        return c.body(body, 400, noStoreJsonHeaders);
-      case "INTERNAL_SERVER_ERROR":
-      default:
-        return c.body(body, 500, noStoreJsonHeaders);
-    }
+    return sendAuthleteAction(c, res, {
+      OK: { status: 200, body: res.responseContent || '{"active":false}' },
+      JWT: {
+        status: 200,
+        headers: { ...noStoreHeaders, "content-type": "application/token-introspection+jwt" },
+      },
+      BAD_REQUEST: 400,
+      INTERNAL_SERVER_ERROR: 500,
+    });
   });
 
   return introspect;

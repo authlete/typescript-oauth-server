@@ -6,11 +6,18 @@
  * based on client registration; we just forward the parsed Basic credentials.
  */
 
-import type { Context } from "hono";
 import { Hono } from "hono";
 import type { Deps } from "../app.js";
-import { basicCredsFor } from "../auth/basic.js";
-import { basicChallengeHeaders, noStoreJsonHeaders } from "../http.js";
+import { basicChallengeHeaders, basicCredsFor, sendAuthleteAction } from "../http.js";
+
+/** Grant flows Authlete supports but this AS has not implemented. */
+const unsupportedGrant = (action: string) => ({
+  status: 400,
+  body: JSON.stringify({
+    error: "unsupported_grant_type",
+    error_description: `Grant flow ${action} is not implemented.`,
+  }),
+});
 
 export function tokenRoutes({ authlete, config }: Deps) {
   const token = new Hono();
@@ -21,44 +28,18 @@ export function tokenRoutes({ authlete, config }: Deps) {
       serviceId: config.authleteServiceId,
       tokenRequest: { parameters, ...basicCredsFor(c) },
     });
-    return dispatch(c, res.action, res.responseContent);
+    return sendAuthleteAction(c, res, {
+      OK: 200,
+      INVALID_CLIENT: { status: 401, headers: basicChallengeHeaders },
+      BAD_REQUEST: 400,
+      INTERNAL_SERVER_ERROR: 500,
+      PASSWORD: unsupportedGrant("PASSWORD"),
+      TOKEN_EXCHANGE: unsupportedGrant("TOKEN_EXCHANGE"),
+      JWT_BEARER: unsupportedGrant("JWT_BEARER"),
+      NATIVE_SSO: unsupportedGrant("NATIVE_SSO"),
+      ID_TOKEN_REISSUABLE: unsupportedGrant("ID_TOKEN_REISSUABLE"),
+    });
   });
 
   return token;
-}
-
-function dispatch(c: Context, action: string | undefined, responseContent: string | undefined): Response {
-  const body = responseContent ?? "";
-  switch (action) {
-    case "OK":
-      return c.body(body, 200, noStoreJsonHeaders);
-    case "INVALID_CLIENT":
-      return c.body(body, 401, basicChallengeHeaders);
-    case "BAD_REQUEST":
-      return c.body(body, 400, noStoreJsonHeaders);
-    case "INTERNAL_SERVER_ERROR":
-      return c.body(body, 500, noStoreJsonHeaders);
-    case "PASSWORD":
-    case "TOKEN_EXCHANGE":
-    case "JWT_BEARER":
-    case "NATIVE_SSO":
-    case "ID_TOKEN_REISSUABLE":
-      return c.body(
-        JSON.stringify({
-          error: "unsupported_grant_type",
-          error_description: `Grant flow ${action} is not implemented.`,
-        }),
-        400,
-        noStoreJsonHeaders,
-      );
-    default:
-      return c.body(
-        JSON.stringify({
-          error: "server_error",
-          error_description: `Unexpected Authlete action: ${action ?? "<missing>"}`,
-        }),
-        500,
-        noStoreJsonHeaders,
-      );
-  }
 }

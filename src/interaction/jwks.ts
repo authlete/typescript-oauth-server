@@ -8,7 +8,7 @@
  */
 
 import type { JWK } from "jose";
-import type { Config } from "./config.js";
+import type { Config } from "../config.js";
 
 export type JWKS = { keys: JWK[] };
 
@@ -42,30 +42,22 @@ export function publicJwks(jwks: JWKS): JWKS {
 }
 
 /**
- * Resolve a signing key from the local JWKS using the rules:
- *   1. explicit kid match
- *   2. only one key in the set
- *   3. first key whose `alg` matches the configured signing alg
- *   4. first key in the set
+ * Resolve the signing key from the local JWKS:
+ *   1. the only key in the set, if there is exactly one
+ *   2. else the first key whose `alg` matches the signing alg
+ *   3. else the first key in the set
  */
-export function resolveSigningKey(jwks: JWKS, opts: { kid?: string; alg?: string }): JWK {
-  if (opts.kid) {
-    const byKid = jwks.keys.find((k) => k.kid === opts.kid);
-    if (!byKid) throw new Error(`No JWK with kid=${opts.kid} in configured JWKS`);
-    return byKid;
-  }
+export function resolveSigningKey(jwks: JWKS, alg: string): JWK {
   if (jwks.keys.length === 1) return jwks.keys[0]!;
-  if (opts.alg) {
-    const byAlg = jwks.keys.find((k) => k.alg === opts.alg);
-    if (byAlg) return byAlg;
-  }
-  return jwks.keys[0]!;
+  return jwks.keys.find((k) => k.alg === alg) ?? jwks.keys[0]!;
 }
 
+// The interaction keypair is deployment-level — one per process, shared by every
+// server instance — so these parsed-once caches are deliberately module-scoped.
 let cachedAsPrivateJwks: JWKS | null = null;
 let cachedAsPublicJwks: JWKS | null = null;
 
-/** Memoized AS private JWKS (the signing key is deployment-wide, parsed once). */
+/** The AS's private JWKS, parsed once from AS_SIGNING_JWKS. */
 export function getAsPrivateJwks(config: Config): JWKS {
   if (!cachedAsPrivateJwks) {
     if (!config.asSigningJwks) throw new Error("AS_SIGNING_JWKS not configured");
@@ -74,7 +66,7 @@ export function getAsPrivateJwks(config: Config): JWKS {
   return cachedAsPrivateJwks;
 }
 
-/** Memoized AS public JWKS — published at /.well-known/jwks.json. */
+/** The AS's public JWKS — published at /.well-known/jwks.json. */
 export function getAsPublicJwks(config: Config): JWKS {
   if (!cachedAsPublicJwks) {
     cachedAsPublicJwks = config.asSigningJwks ? publicJwks(getAsPrivateJwks(config)) : { keys: [] };

@@ -12,10 +12,10 @@ contract defined here.
 
 ## Roles
 
-| Role | Owns |
-|---|---|
-| **AS** | OAuth/OIDC endpoints, authorization-transaction state, no UI, no user data. |
-| **Interaction app** | User store, consent store, all UI screens. No OAuth/OIDC knowledge. |
+| Role                | Owns                                                                        |
+| ------------------- | --------------------------------------------------------------------------- |
+| **AS**              | OAuth/OIDC endpoints, authorization-transaction state, no UI, no user data. |
+| **Interaction app** | User store, consent store, all UI screens. No OAuth/OIDC knowledge.         |
 
 The interaction app is pluggable. Any app that implements this contract can
 pair with the AS — the canonical implementation in this project is `auth-ui`,
@@ -31,17 +31,12 @@ but the protocol does not depend on it.
   as RFC 7521 / 7523, applied per call — no intermediate bearer tokens).
 - No OAuth-client registration is involved on either side for this protocol.
 
-## Channels
+## Transport
 
-Two interaction modes, selected at deployment time:
-
-| Mode | Carrier | When to use |
-|---|---|---|
-| **backchannel** | Direct server-to-server HTTPS request; JWT in `Authorization: Bearer`. | **Production default.** Use when both peers are network-reachable to each other. |
-| **frontchannel** | JWT carried on existing browser redirects as a URL query parameter. No JS, no form-post. | **Dev/test only** — for asymmetric reachability (e.g., AS on `localhost` while the interaction app is hosted). Exposes JWT contents (including PII) to browser history, referer headers, and intermediate access logs. Implementations MUST refuse in production unless explicitly overridden. |
-
-The two modes share the **same JWT envelope, claim shapes, and verification
-rules**. Only the carrier differs. A deployment runs in one mode at a time.
+All API operations are direct server-to-server HTTPS requests with the JWT in
+`Authorization: Bearer`. The two peers must be network-reachable to each other.
+The only browser-carried token is the §1 interaction token, which is
+routing-only and carries no user data.
 
 ## JWT envelope
 
@@ -59,9 +54,8 @@ Claims (always):
   aud  receiver's issuer id
   iat  unix seconds
   exp  short-lived; depends on the message:
-       · server-to-server call tokens (§1.a, §2.a, §4):        iat + 60
+       · server-to-server call tokens (§1.a, §2, §4):          iat + 60
        · the §1 interaction token (spans the user's sign-in+consent): iat + 600
-       · frontchannel tokens carried across interaction (§1, §2.b): iat + 300
   jti  uuid v4
 ```
 
@@ -86,22 +80,21 @@ Every receiver, every inbound JWT:
 The AS keeps **no `jti` store**. Replay protection comes from:
 
 - **Short `exp`** (see the envelope above — 60 s for calls, longer only for the
-  browser-carried interaction/frontchannel tokens).
+  browser-carried interaction token).
 - **Authorization-id binding** for non-idempotent operations. The id is backed
   by the AS's single-use transaction state, so a replayed JWT for a completed
   authorization fails inside the AS's state engine.
 - **Idempotency** for read-only operations (state fetch, user fetch).
-- **TLS** for backchannel.
+- **TLS** on every server-to-server call.
 
 ## Key resolution
 
 Each peer publishes one JWKS that may contain one or more keys, distinguished
 by `kid`. The signer picks its own key with this resolver:
 
-1. Use the explicitly configured `kid` if set.
-2. Else if the JWKS has exactly one key, use it.
-3. Else use the first key whose `alg` matches the configured signing alg.
-4. Else use the first key in `keys[]`.
+1. If the JWKS has exactly one key, use it.
+2. Else use the first key whose `alg` matches the configured signing alg.
+3. Else use the first key in `keys[]`.
 
 The verifier picks by the `kid` from the inbound JWS header; no fallback.
 
@@ -110,7 +103,7 @@ The verifier picks by the `kid` from the inbound JWS header; no fallback.
 ```
 Browser paths (top-level — no /api/ prefix):
   AS → interaction app:   <APP_URL>/authorizations/<id>?interaction=<jwt>
-  interaction app → AS:   <AS_URL>/authorizations/<id>/resume[?decision=<jwt>]
+  interaction app → AS:   <AS_URL>/authorizations/<id>/resume
 
 API paths (server-to-server JSON, JWT in Authorization: Bearer):
   interaction app → AS:   GET  /api/authorizations/{id}
@@ -119,6 +112,7 @@ API paths (server-to-server JSON, JWT in Authorization: Bearer):
 ```
 
 Conventions:
+
 - **`authorizations`** is the in-flight authorization-transaction resource.
 - **`/api/`** = server-to-server JSON.
 - **Top-level paths** = browser-hit, HTML or redirect response.
@@ -138,22 +132,18 @@ The AS, after processing `/oauth/authorize`, redirects the browser:
 The `interaction` JWT is a **signed routing token**. It carries the AS's own
 callback base URL (`as_base`), so the interaction app calls back to the correct
 AS deployment **without holding that URL in static config**. The callback base
-is the one value that varies per deployment — and per tenant in a multi-tenant
-host. Trust identity (`iss`/`aud`, both JWKS) stays static config on both sides;
-only the routing base rides as data.
+is the one value that varies per deployment. Trust identity (`iss`/`aud`, both
+JWKS) stays static config on both sides; only the routing base rides as data.
 
 The token is **routing-only — no user data** — so carrying it on the redirect is
-safe in both channels (unlike the frontchannel state token below).
+safe.
 
 Interaction JWT claims:
+
 ```jsonc
 {
-  "authorization": "<id>",              // MUST equal the <id> in the URL path
-  "as_base": "https://as.example.com",  // AS origin to call back to (§1.a, §2)
-
-  // frontchannel only — the full authorization state inline (see §1.a),
-  // letting the app skip the §1.a GET:
-  "details": { /* ... */ }
+  "authorization": "<id>", // MUST equal the <id> in the URL path
+  "as_base": "https://as.example.com", // AS origin to call back to (§1.a, §2)
 }
 ```
 
@@ -170,6 +160,7 @@ verifies is proof the base is genuine — no separate origin allow-list is neede
 **Response (JSON):** the client (for display) plus the first interaction. The AS
 orchestrates two interactions — **authenticate**, then **consent** — so the first
 step is always `authenticate`.
+
 ```jsonc
 {
   "client": { "client_id", "name", "logo_uri", "policy_uri", "tos_uri" },
@@ -186,13 +177,14 @@ step is always `authenticate`.
 
 ### 2. Interaction app → AS: report an interaction outcome
 
-#### 2.a. `POST /api/authorizations/{id}/outcome` (backchannel)
+#### `POST /api/authorizations/{id}/outcome`
 
 The app reports the outcome of one interaction; the AS reconciles and replies with
 what's `next` (`authenticate` | `consent` | `done`). The app loops until `done`,
 then redirects the browser to `redirect_to`.
 
 **JWT claims** — the `outcome`:
+
 ```jsonc
 // authenticate outcome
 { "authorization": "<id>", "outcome": {
@@ -211,6 +203,7 @@ then redirects the browser to `redirect_to`.
 ```
 
 **Response** — the next step:
+
 ```jsonc
 { "next": "consent", "consent": {
     "new":             [{ "name": "approve:expense", "description": "..." }],  // still needs consent
@@ -234,19 +227,20 @@ and the final scope grant (already-granted ∪ newly consented), or `fail` if ei
 interaction was rejected — and redirects the browser to the RP's `redirect_uri`.
 The authorization code never passes through the interaction app.
 
-### 4. AS → interaction app: fetch the user resource (backchannel)
+### 4. AS → interaction app: fetch the user resource
 
 `GET /api/users/{id}` with `Authorization: Bearer <jwt>`. Used by the AS at
 `/userinfo` handling time to source fresh claim values.
 
 **Response (JSON):**
+
 ```jsonc
 {
   "id": "<user-id>",
   "name": "<current name>",
   "email": "<current email>",
   "email_verified": true,
-  "picture": "<image url>"
+  "picture": "<image url>",
 }
 ```
 
@@ -256,30 +250,24 @@ consented to release).
 
 `404 Not Found` if the id is unknown.
 
-Frontchannel has no counterpart for this operation; it is backchannel-only.
-
 ## Configuration
 
 Each peer needs:
 
-| Concept | Notes |
-|---|---|
-| Own base URL | The deployment's base URL — its `iss`/`aud`, and the origin of its published JWKS (`/.well-known/jwks.json`). |
-| Peer base URL | The other side's base URL. Its identity **and** JWKS both derive from this — no separate JWKS URI. |
-| Own private JWKS | For signing outbound JWTs. May contain one or many keys. |
-| Channel mode | `backchannel` (prod) or `frontchannel` (dev only). |
+| Concept          | Notes                                                                                                         |
+| ---------------- | ------------------------------------------------------------------------------------------------------------- |
+| Own base URL     | The deployment's base URL — its `iss`/`aud`, and the origin of its published JWKS (`/.well-known/jwks.json`). |
+| Peer base URL    | The other side's base URL. Its identity **and** JWKS both derive from this — no separate JWKS URI.            |
+| Own private JWKS | For signing outbound JWTs. May contain one or many keys.                                                      |
 
 The interaction app does **not** configure the AS's callback base — it receives
 that per-request in the §1 interaction token. It still configures the AS's
-*identity* (issuer id + JWKS URI) statically, as the trust anchor.
+_identity_ (issuer id + JWKS URI) statically, as the trust anchor.
 
 Env-var names are implementation-specific; see each repo's `.env.example`.
 
 ## Production guidance
 
-- Use **backchannel** in production. Period.
-- Implementations MUST refuse frontchannel when `NODE_ENV=production` unless
-  an explicit override is set.
 - Both peers should publish their public JWKS over HTTPS with a sensible
   cache header (`public, max-age=300` recommended).
 - Rotate keys by adding a second key with a new `kid` to the JWKS; switch

@@ -12,7 +12,7 @@ import type { Context } from "hono";
 import { Hono } from "hono";
 import type { ClientRegistrationResponse } from "@authlete/typescript-sdk/models";
 import type { Deps } from "../app.js";
-import { extractBearer, noStoreJsonHeaders } from "../http.js";
+import { extractBearer, sendAuthleteAction } from "../http.js";
 
 export function registerRoutes({ authlete, config }: Deps) {
   const register = new Hono();
@@ -72,21 +72,13 @@ export function registerRoutes({ authlete, config }: Deps) {
 }
 
 function dispatch(c: Context, res: ClientRegistrationResponse): Response {
-  const body = res.responseContent ?? "";
-  switch (res.action) {
-    case "CREATED":
-      return c.body(body, 201, noStoreJsonHeaders);
-    case "UPDATED":
-    case "OK":
-      return c.body(body, 200, noStoreJsonHeaders);
-    case "DELETED":
-      return c.body(null, 204, noStoreJsonHeaders);
-    case "BAD_REQUEST":
-      return c.body(body, 400, noStoreJsonHeaders);
-    case "UNAUTHORIZED":
-      return c.body(body, 401, noStoreJsonHeaders);
-    case "INTERNAL_SERVER_ERROR":
-    default:
-      return c.body(body, 500, noStoreJsonHeaders);
-  }
+  return sendAuthleteAction(c, res, {
+    CREATED: 201,
+    UPDATED: 200,
+    OK: 200,
+    DELETED: { status: 204, body: null },
+    BAD_REQUEST: 400,
+    UNAUTHORIZED: 401,
+    INTERNAL_SERVER_ERROR: 500,
+  });
 }

@@ -8,17 +8,10 @@
  * @see https://openid.net/specs/openid-federation-1_0.html
  */
 
-import type { Context } from "hono";
 import { Hono } from "hono";
-import {
-  FederationConfigurationResponseAction,
-  FederationRegistrationResponseAction,
-  type FederationConfigurationResponse,
-  type FederationRegistrationRequest,
-  type FederationRegistrationResponse,
-} from "@authlete/typescript-sdk/models";
+import type { FederationRegistrationRequest } from "@authlete/typescript-sdk/models";
 import type { Deps } from "../app.js";
-import { noStoreHeaders } from "../http.js";
+import { noStoreHeaders, noStoreJsonHeaders, sendAuthleteAction } from "../http.js";
 
 const ENTITY_STATEMENT_JWT = "application/entity-statement+jwt";
 const TRUST_CHAIN_JSON = "application/trust-chain+json";
@@ -28,22 +21,20 @@ const entityStatementHeaders = {
   "content-type": ENTITY_STATEMENT_JWT,
 } as const;
 
-const errorJsonHeaders = {
-  ...noStoreHeaders,
-  "content-type": "application/json",
-} as const;
-
 export function federationRoutes({ authlete, config }: Deps) {
   const federation = new Hono();
 
   federation.get("/.well-known/openid-federation", async (c) => {
     const res = await authlete.federation.configuration({
       serviceId: config.authleteServiceId,
-      // SDK gap (#2 + #3 in docs/AUTHLETE_SDK_GAPS.md): empty `{}` is required
-      // (typed optional but isn't) and `entityTypes` filter cannot be passed.
+      // The live API rejects a missing body even though the SDK types it optional.
       requestBody: {},
     });
-    return dispatchConfiguration(c, res);
+    return sendAuthleteAction(c, res, {
+      OK: { status: 200, headers: entityStatementHeaders },
+      NOT_FOUND: 404,
+      INTERNAL_SERVER_ERROR: 500,
+    });
   });
 
   federation.post("/api/federation/register", async (c) => {
@@ -61,7 +52,7 @@ export function federationRoutes({ authlete, config }: Deps) {
           error_description: `Expected ${ENTITY_STATEMENT_JWT} or ${TRUST_CHAIN_JSON}`,
         }),
         415,
-        errorJsonHeaders,
+        noStoreJsonHeaders,
       );
     }
 
@@ -69,36 +60,13 @@ export function federationRoutes({ authlete, config }: Deps) {
       serviceId: config.authleteServiceId,
       federationRegistrationRequest,
     });
-    return dispatchRegistration(c, res);
+    return sendAuthleteAction(c, res, {
+      OK: { status: 200, headers: entityStatementHeaders },
+      BAD_REQUEST: 400,
+      NOT_FOUND: 404,
+      INTERNAL_SERVER_ERROR: 500,
+    });
   });
 
   return federation;
-}
-
-function dispatchConfiguration(c: Context, res: FederationConfigurationResponse): Response {
-  const content = res.responseContent ?? "";
-  switch (res.action) {
-    case FederationConfigurationResponseAction.Ok:
-      return c.body(content, 200, entityStatementHeaders);
-    case FederationConfigurationResponseAction.NotFound:
-      return c.body(content, 404, errorJsonHeaders);
-    case FederationConfigurationResponseAction.InternalServerError:
-    default:
-      return c.body(content, 500, errorJsonHeaders);
-  }
-}
-
-function dispatchRegistration(c: Context, res: FederationRegistrationResponse): Response {
-  const content = res.responseContent ?? "";
-  switch (res.action) {
-    case FederationRegistrationResponseAction.Ok:
-      return c.body(content, 200, entityStatementHeaders);
-    case FederationRegistrationResponseAction.BadRequest:
-      return c.body(content, 400, errorJsonHeaders);
-    case FederationRegistrationResponseAction.NotFound:
-      return c.body(content, 404, errorJsonHeaders);
-    case FederationRegistrationResponseAction.InternalServerError:
-    default:
-      return c.body(content, 500, errorJsonHeaders);
-  }
 }

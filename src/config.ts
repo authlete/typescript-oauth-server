@@ -3,9 +3,8 @@
  *
  * `fromEnv()` builds a Config from the process environment. Importing this
  * module has NO side effects — nothing reads env until `fromEnv()` is called
- * (by the standalone entry). A package consumer (e.g. a multi-tenant host that
- * builds its own per-tenant Config) can import the library without needing any
- * single service's env.
+ * (by the standalone entry). Tests and embedders can instead construct a
+ * Config directly and pass it to `createOAuthServer`.
  */
 
 function required(name: string): string {
@@ -24,7 +23,10 @@ function optional(name: string, fallback: string): string {
 function list(name: string): string[] {
   const v = process.env[name];
   if (!v) return [];
-  return v.split(",").map((s) => s.trim()).filter(Boolean);
+  return v
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
 }
 
 export interface Config {
@@ -34,13 +36,11 @@ export interface Config {
   asBaseUrl: string;
   authUiUrl: string;
   port: number;
-  nodeEnv: string;
   corsOrigins: string[];
   asIssuerId: string;
   authUiIssuerId: string;
   authUiJwksUri: string;
   asSigningJwks: string;
-  asSigningKid: string;
 }
 
 // The AS's public origin. Prefer the explicit AS_BASE_URL; on Vercel preview
@@ -65,7 +65,6 @@ export function fromEnv(): Config {
     asBaseUrl,
     authUiUrl,
     port: parseInt(optional("PORT", "3000"), 10),
-    nodeEnv: optional("NODE_ENV", "development"),
     corsOrigins: list("CORS_ORIGINS"),
     // Own identity is the base URL; the peer's identity and JWKS derive from its
     // URL — same convention on both sides of the interaction protocol.
@@ -73,6 +72,5 @@ export function fromEnv(): Config {
     authUiIssuerId: authUiUrl,
     authUiJwksUri: `${authUiUrl}/.well-known/jwks.json`,
     asSigningJwks: optional("AS_SIGNING_JWKS", ""),
-    asSigningKid: "",
   };
 }
