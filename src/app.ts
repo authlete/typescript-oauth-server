@@ -21,6 +21,7 @@ import { jwksRoutes } from "./routes/jwks.js";
 import { introspectRoutes } from "./routes/introspect.js";
 import { revokeRoutes } from "./routes/revoke.js";
 import { parRoutes } from "./routes/par.js";
+import { gmRoutes } from "./routes/gm.js";
 import { federationRoutes } from "./routes/federation.js";
 import { registerRoutes } from "./routes/register.js";
 
@@ -86,6 +87,7 @@ export function createOAuthServer(config: Config): Hono {
   app.route("/", introspectRoutes(deps));
   app.route("/", revokeRoutes(deps));
   app.route("/", parRoutes(deps));
+  app.route("/", gmRoutes(deps));
   app.route("/", federationRoutes(deps));
   app.route("/", registerRoutes(deps));
 

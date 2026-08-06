@@ -71,6 +71,7 @@ The server is a Hono app with a `default` export, which Vercel runs with zero co
 | `POST /oauth/revoke`                          | RFC 7009                                                                     | Token revocation.                                                                                                                        |
 | `POST /api/register`                          | RFC 7591                                                                     | Dynamic Client Registration.                                                                                                             |
 | `GET/PUT/DELETE /api/register/{id}`           | RFC 7592                                                                     | Client registration management (read / update / delete).                                                                                 |
+| `GET/DELETE /api/gm/{grantId}`                | [Grant Management for OAuth 2.0](https://openid.net/specs/fapi-grant-management.html) | Grant Management — query (`GET`) or revoke (`DELETE`) a grant. Bearer-authenticated with the grant's access token.                        |
 | `GET /oauth/jwks`                             | RFC 7517                                                                     | OAuth JWK Set — the service's token-signing keys (Authlete-managed).                                                                     |
 | `GET /.well-known/jwks.json`                  | [Interaction Protocol](./INTERACTION_PROTOCOL.md)                            | The AS's interaction-protocol public key, for `auth-ui` to verify the AS's signed messages.                                              |
 | `GET /.well-known/openid-configuration`       | OIDC Discovery                                                               | OIDC discovery metadata.                                                                                                                 |
@@ -129,7 +130,7 @@ Decouple authentication and consent from the AS. The AS stays a thin, spec-compl
 ### Why this pattern
 
 - **Implementation-portable.** A thin Authlete client with no user state can be this Node service, a sidecar, a reverse-proxy plugin, or live inside an API gateway / edge worker.
-- **Authentication and consent evolve in `auth-ui`** — MFA, passkeys, federation, step-up, per-claim consent, RAR, grant management — none of which the AS ever sees.
+- **Authentication and consent evolve in `auth-ui`** — MFA, passkeys, federation, step-up, per-claim consent, RAR — none of which the AS ever sees.
 - **Independent deploy and scale.** Two services, one narrow protocol between them.
 
 This separation matches the architecture Authlete is designed around: the engine owns the spec and per-transaction state; you own the user experience.
