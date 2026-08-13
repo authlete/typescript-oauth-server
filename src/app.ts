@@ -48,8 +48,8 @@ export function createOAuthServer(config: Config): Hono {
   // Cross-origin access for browser callers (e.g. the OAuth Playground). Driven
   // by CORS_ORIGINS so each deployment configures its own allowlist. Scoped
   // to endpoints a browser RP legitimately hits — OAuth + discovery + federation
-  // registration. /api/authorizations/* is intentionally excluded; it's the
-  // AS↔auth-ui interaction protocol, server-to-server only.
+  // registration + grant management. /api/authorizations/* is intentionally
+  // excluded; it's the AS↔auth-ui interaction protocol, server-to-server only.
   if (config.corsOrigins.length > 0) {
     const allowAll = config.corsOrigins.includes("*");
     const corsMiddleware = cors({
@@ -64,6 +64,7 @@ export function createOAuthServer(config: Config): Hono {
     app.use("/api/federation/*", corsMiddleware);
     app.use("/api/register", corsMiddleware);
     app.use("/api/register/*", corsMiddleware);
+    app.use("/api/gm/*", corsMiddleware);
   }
 
   // Root signpost.
