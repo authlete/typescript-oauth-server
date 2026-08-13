@@ -42,7 +42,7 @@ Copy `.env.example` to `.env` and fill in:
 | --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `AUTHLETE_BASE_URL`   | Authlete cluster URL (default `https://us.authlete.com`).                                                                                                                        |
 | `AUTHLETE_SERVICE_ID` | Numeric service id from the Authlete console.                                                                                                                                    |
-| `AUTHLETE_API_TOKEN`  | Service access token from the Authlete console.                                                                                                                                  |
+| `AUTHLETE_API_TOKEN`  | Service access token from the Authlete console. Needs `use_service`; the connected-apps revoke also needs `modify_client`.                                                       |
 | `AS_BASE_URL`         | This server's public URL — its issuer identity (RPs and `auth-ui` use it). On Vercel previews, falls back to `VERCEL_URL`.                                                       |
 | `AUTH_UI_URL`         | Where `auth-ui` is reachable — its identity and JWKS (`/.well-known/jwks.json`) are derived from this.                                                                           |
 | `AS_SIGNING_JWKS`     | The AS's private ES256 JWKS for signing interaction-protocol JWTs to `auth-ui`; its public counterpart is published at `/.well-known/jwks.json`. Generate with `npm run keygen`. |
@@ -81,6 +81,7 @@ The server is a Hono app with a `default` export, which Vercel runs with zero co
 | `GET  /api/authorizations/{id}`               | [Interaction Protocol](./INTERACTION_PROTOCOL.md)                            | Interaction app fetches in-flight authorization state (JWT-bearer auth).                                                                 |
 | `POST /api/authorizations/{id}/outcome`       | [Interaction Protocol](./INTERACTION_PROTOCOL.md)                            | Interaction app reports an interaction's outcome (JWT-bearer auth).                                                                      |
 | `GET  /authorizations/{id}/resume`            | [Interaction Protocol](./INTERACTION_PROTOCOL.md)                            | Browser returns here from the interaction app; the AS calls Authlete `issue`/`fail` and redirects the RP.                                |
+| `GET/DELETE /api/authorized-apps`             | [Interaction Protocol](./INTERACTION_PROTOCOL.md)                            | Connected-apps management — the interaction app lists (`GET`) or revokes (`DELETE`) the apps a subject has granted (JWT-bearer auth). Revoke needs a token with `modify_client`. |
 
 ## Interaction protocol
 

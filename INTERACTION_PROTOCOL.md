@@ -59,7 +59,7 @@ Claims (always):
   jti  uuid v4
 ```
 
-Per-operation claims are layered on top (see Operations below).
+Per-operation claims are layered on top (see Operations below): `authorization` for the authorization-transaction calls, or `subject` for the account-scoped connected-apps calls.
 
 ## Verification rules
 
@@ -106,9 +106,11 @@ Browser paths (top-level — no /api/ prefix):
   interaction app → AS:   <AS_URL>/authorizations/<id>/resume
 
 API paths (server-to-server JSON, JWT in Authorization: Bearer):
-  interaction app → AS:   GET  /api/authorizations/{id}
-                          POST /api/authorizations/{id}/outcome
-  AS → interaction app:   GET  /api/users/{id}
+  interaction app → AS:   GET    /api/authorizations/{id}
+                          POST   /api/authorizations/{id}/outcome
+                          GET    /api/authorized-apps
+                          DELETE /api/authorized-apps/{clientId}
+  AS → interaction app:   GET    /api/users/{id}
 ```
 
 Conventions:
@@ -206,18 +208,21 @@ then redirects the browser to `redirect_to`.
 
 ```jsonc
 { "next": "consent", "consent": {
-    "new":             [{ "name": "approve:expense", "description": "..." }],  // still needs consent
-    "already_granted": [{ "name": "read:expense",    "description": "..." }]   // shown read-only
+    "new":             [{ "name": "approve:expense", "description": "..." }],  // scopes still needing consent
+    "already_granted": [{ "name": "read:expense",    "description": "..." }],  // shown read-only
+    "authorization_details": [{ "type": "...", "actions": ["..."] }]           // RAR (RFC 9396), if requested
 } }
 // or, nothing left to do:
 { "next": "done", "redirect_to": "<AS_URL>/authorizations/<id>/resume" }
 ```
 
 The AS computes the consent step for the authenticated subject:
-`new = requested − already-granted` (Authlete's `mergedGrantedScopes`). If nothing
-is new and `prompt=consent` is absent, it skips consent and replies `done`. Any
-granted-scopes lookup failure falls back to full consent (every requested scope is
-`new`), so an AS that never uses the API behaves exactly as before.
+`new = requested − already-granted` (Authlete's `mergedGrantedScopes`). Consent is
+skipped (reply `done`) only when nothing is new **and** there are no
+`authorization_details` — RAR is per-request, so its presence always requires
+consent. `prompt=consent` re-confirms the whole request (nothing counts as
+pre-granted, so every requested scope is `new`). Any granted-scopes lookup failure
+falls back to full consent, so an AS that never uses the API behaves as before.
 
 ### 3. AS resume: `GET /authorizations/{id}/resume`
 
@@ -249,6 +254,43 @@ OIDC-claim projection (filter the user fields by the claims the user
 consented to release).
 
 `404 Not Found` if the id is unknown.
+
+### 5. Interaction app → AS: connected-apps management
+
+Account-scoped, not part of the authorization loop above: the interaction app's
+account UI lists and revokes the apps a user has granted. Same transport and keys,
+but the JWT carries a `subject` claim (the acting user) instead of an
+`authorization`. Revoke needs the AS's Authlete token to hold `modify_client`.
+
+#### `GET /api/authorized-apps` — list the subject's granted apps
+
+**JWT claims:** `{ "subject": "<user-id>" }`
+
+**Response (JSON):**
+
+```jsonc
+{
+  "apps": [
+    {
+      "client": {
+        "client_id": "...",
+        "name": "...",
+        "logo_uri": "...",
+        "client_uri": "...",
+        "redirect_uris": ["..."]
+      },
+      "scopes": ["openid", "email"]
+    }
+  ]
+}
+```
+
+#### `DELETE /api/authorized-apps/{clientId}` — revoke the subject's grant
+
+Clears the subject's remembered scopes and tokens for the client, so a later
+authorization re-prompts consent. `204 No Content` on success.
+
+**JWT claims:** `{ "subject": "<user-id>" }`
 
 ## Configuration
 
