@@ -44,14 +44,23 @@ export type StoredContext = {
 
 export type Scope = { name: string; description?: string };
 
+export type RarElement = Record<string, unknown>;
+
 /** What auth-ui must do next, decided after a reported outcome. */
 export type NextStep =
-  { next: "done" } | { next: "consent"; newScopes: Scope[]; alreadyGranted: Scope[] };
+  | { next: "done" }
+  | {
+      next: "consent";
+      newScopes: Scope[];
+      alreadyGranted: Scope[];
+      authorizationDetails: RarElement[];
+    };
 
 /**
  * Record the authenticate outcome and decide the next step: skip consent when
  * every requested scope is already granted to this subject (unless the request
  * forces it with prompt=consent), else consent — split into new vs already-granted.
+ * RAR (authorization_details) is per-request, so its presence always requires consent.
  */
 export async function recordAuthentication(
   authlete: Authlete,
@@ -69,10 +78,16 @@ export async function recordAuthentication(
     name: s.name ?? "",
     description: s.description,
   }));
-  const granted = await alreadyGrantedScopes(authlete, config, ctx.auth, outcome.subject);
+  // prompt=consent re-confirms the whole request, so nothing counts as pre-granted.
+  const forced = (ctx.auth.prompts ?? []).includes(Prompt.Consent);
+  const granted = forced
+    ? []
+    : await alreadyGrantedScopes(authlete, config, ctx.auth, outcome.subject);
   const newScopes = requested.filter((s) => !granted.includes(s.name));
   const alreadyGranted = requested.filter((s) => granted.includes(s.name));
-  const forced = (ctx.auth.prompts ?? []).includes(Prompt.Consent);
+  const authorizationDetails = normalizeRar(
+    (ctx.auth.authorizationDetails?.elements ?? []) as RarElement[],
+  );
 
   await storeContext(config, id, {
     ...ctx,
@@ -80,8 +95,23 @@ export async function recordAuthentication(
     already: alreadyGranted.map((s) => s.name),
   });
 
-  if (newScopes.length === 0 && !forced) return { next: "done" };
-  return { next: "consent", newScopes, alreadyGranted };
+  if (newScopes.length === 0 && authorizationDetails.length === 0) {
+    return { next: "done" };
+  }
+  return { next: "consent", newScopes, alreadyGranted, authorizationDetails };
+}
+
+/** Un-fold Authlete's stringified `otherFields` back into plain RFC 9396 elements. */
+function normalizeRar(elements: RarElement[]): RarElement[] {
+  return elements.map((el) => {
+    const { otherFields, ...rest } = el;
+    if (typeof otherFields !== "string") return rest;
+    try {
+      return { ...rest, ...(JSON.parse(otherFields) as Record<string, unknown>) };
+    } catch {
+      return rest;
+    }
+  });
 }
 
 /** Record the consent outcome; the flow is then ready to finalize. */

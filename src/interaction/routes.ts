@@ -149,7 +149,11 @@ export function interactionRoutes({ authlete, config }: Deps) {
       if (step.next === "done") return c.json(done);
       return c.json({
         next: "consent",
-        consent: { new: step.newScopes, already_granted: step.alreadyGranted },
+        consent: {
+          new: step.newScopes,
+          already_granted: step.alreadyGranted,
+          authorization_details: step.authorizationDetails,
+        },
       });
     }
 
