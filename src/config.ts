@@ -47,6 +47,8 @@ export interface Config {
   consentUiUrl: string;
   consentUiIssuerId: string;
   consentUiJwksUri: string;
+  // First-party Grant API (Authlete spike). Off by default — prod doesn't ship it.
+  grantApiEnabled: boolean;
 }
 
 // The AS's public origin. Prefer the explicit AS_BASE_URL; on Vercel preview
@@ -83,5 +85,6 @@ export function fromEnv(): Config {
     consentUiUrl,
     consentUiIssuerId: consentUiUrl,
     consentUiJwksUri: consentUiUrl ? `${consentUiUrl}/.well-known/jwks.json` : "",
+    grantApiEnabled: optional("GRANT_API_ENABLED", "false") === "true",
   };
 }
