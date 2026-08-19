@@ -18,6 +18,7 @@ import {
   noStoreJsonHeaders,
   sendAuthleteAction,
 } from "../http.js";
+import { onGrantRevoked } from "../grant-lifecycle.js";
 
 export function gmRoutes({ authlete, config }: Deps) {
   const gm = new Hono();
@@ -26,10 +27,15 @@ export function gmRoutes({ authlete, config }: Deps) {
     const accessToken = extractBearer(c.req.header("authorization"));
     if (!accessToken) return bearerChallenge(c, 401);
 
+    const grantId = c.req.param("grantId");
     const res = await authlete.grantManagement.processRequest({
       serviceId: config.authleteServiceId,
-      gMRequest: { gmAction, grantId: c.req.param("grantId"), accessToken },
+      gMRequest: { gmAction, grantId, accessToken },
     });
+
+    if (gmAction === "REVOKE" && res.action === "NO_CONTENT" && grantId) {
+      await onGrantRevoked(config, grantId);
+    }
 
     // 401/403 carry the challenge in WWW-Authenticate, not the body.
     const challenge = {

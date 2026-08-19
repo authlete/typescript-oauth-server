@@ -13,6 +13,7 @@
 import {
   SignJWT,
   jwtVerify,
+  decodeJwt,
   createRemoteJWKSet,
   importJWK,
   type JWTPayload,
@@ -30,10 +31,10 @@ const SIGNING_ALG = "ES256";
 
 type ResolvedSigningKey = { key: KeyLike | Uint8Array; kid: string; alg: string };
 
-// The interaction keypair and the auth-ui peer are deployment-level — one per
-// process — so these lazy caches are deliberately module-scoped.
+// Deployment-level, one per process: the AS signing key, and one remote JWKS
+// per interaction app (keyed by its JWKS URI).
 let signingKeyPromise: Promise<ResolvedSigningKey> | undefined;
-let remoteAuthUiJwks: ReturnType<typeof createRemoteJWKSet> | undefined;
+const remoteJwksByUri = new Map<string, ReturnType<typeof createRemoteJWKSet>>();
 
 async function getSigningKey(config: Config): Promise<ResolvedSigningKey> {
   if (!signingKeyPromise) {
@@ -51,17 +52,19 @@ async function getSigningKey(config: Config): Promise<ResolvedSigningKey> {
   return signingKeyPromise;
 }
 
-function getRemoteAuthUiJwks(config: Config) {
-  if (!remoteAuthUiJwks) {
-    remoteAuthUiJwks = createRemoteJWKSet(new URL(config.authUiJwksUri), {
+function remoteJwks(jwksUri: string) {
+  let jwks = remoteJwksByUri.get(jwksUri);
+  if (!jwks) {
+    jwks = createRemoteJWKSet(new URL(jwksUri), {
       cacheMaxAge: JWKS_CACHE_MAX_AGE_MS,
       cooldownDuration: JWKS_COOLDOWN_MS,
     });
+    remoteJwksByUri.set(jwksUri, jwks);
   }
-  return remoteAuthUiJwks;
+  return jwks;
 }
 
-/** Sign a JWT addressed to `auth-ui` (audience = auth-ui's issuer id by default). */
+/** Sign a JWT addressed to an interaction app (audience = its issuer id by default). */
 export async function signJwt(
   config: Config,
   payload: Record<string, unknown>,
@@ -82,10 +85,20 @@ export async function signJwt(
     .sign(key);
 }
 
-/** Verify a JWT from `auth-ui`. Throws on any verification failure. */
+/**
+ * Verify a JWT from an interaction app. The token's `iss` selects which app's
+ * JWKS + issuer to validate against — auth-ui, or the consent UI when one is
+ * configured. The signature must match that issuer's key, so `iss` can't be
+ * spoofed; the verified `iss` is the caller's identity.
+ */
 export async function verifyJwt(config: Config, jwt: string): Promise<JWTPayload> {
-  const { payload } = await jwtVerify(jwt, getRemoteAuthUiJwks(config), {
-    issuer: config.authUiIssuerId,
+  const iss = decodeJwt(jwt).iss;
+  const [issuer, jwksUri] =
+    iss && iss === config.consentUiIssuerId
+      ? [config.consentUiIssuerId, config.consentUiJwksUri]
+      : [config.authUiIssuerId, config.authUiJwksUri];
+  const { payload } = await jwtVerify(jwt, remoteJwks(jwksUri), {
+    issuer,
     audience: config.asIssuerId,
     clockTolerance: CLOCK_TOLERANCE_SECONDS,
   });

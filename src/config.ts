@@ -41,6 +41,12 @@ export interface Config {
   authUiIssuerId: string;
   authUiJwksUri: string;
   asSigningJwks: string;
+  // Optional second interaction UI, dedicated to consent. Unset → auth-ui handles
+  // both authentication and consent (one UI). Set → auth-ui authenticates and this
+  // UI handles consent (two UIs). Configured like the auth-ui peer: URL → issuer + JWKS.
+  consentUiUrl: string;
+  consentUiIssuerId: string;
+  consentUiJwksUri: string;
 }
 
 // The AS's public origin. Prefer the explicit AS_BASE_URL; on Vercel preview
@@ -58,6 +64,7 @@ function resolveAsBaseUrl(): string {
 export function fromEnv(): Config {
   const asBaseUrl = resolveAsBaseUrl();
   const authUiUrl = required("AUTH_UI_URL");
+  const consentUiUrl = optional("CONSENT_UI_URL", "");
   return {
     authleteBaseUrl: optional("AUTHLETE_BASE_URL", "https://us.authlete.com"),
     authleteServiceId: required("AUTHLETE_SERVICE_ID"),
@@ -72,5 +79,9 @@ export function fromEnv(): Config {
     authUiIssuerId: authUiUrl,
     authUiJwksUri: `${authUiUrl}/.well-known/jwks.json`,
     asSigningJwks: optional("AS_SIGNING_JWKS", ""),
+    // Second peer, same convention as auth-ui: identity + JWKS derive from the URL.
+    consentUiUrl,
+    consentUiIssuerId: consentUiUrl,
+    consentUiJwksUri: consentUiUrl ? `${consentUiUrl}/.well-known/jwks.json` : "",
   };
 }

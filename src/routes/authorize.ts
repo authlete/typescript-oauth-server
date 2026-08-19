@@ -10,7 +10,8 @@
 import type { Context } from "hono";
 import { Hono } from "hono";
 import type { Deps } from "../app.js";
-import { storeContext } from "../login-consent.js";
+import { toAuthContext } from "../interaction/context.js";
+import { storeContext } from "../interaction/ticket-store.js";
 import { dispatchAuthleteAction } from "../http.js";
 import { signJwt } from "../interaction/jwt.js";
 
@@ -35,7 +36,7 @@ export function authorizeRoutes({ authlete, config }: Deps) {
             500,
           );
         }
-        await storeContext(config, res.ticket, { v: 1, auth: res });
+        await storeContext(config, res.ticket, { v: 1, auth: toAuthContext(res) });
         // Signed interaction token carrying the AS callback base, so auth-ui
         // reaches the right deployment without static config. See §1 of
         // INTERACTION_PROTOCOL.md. Long-lived: spans sign-in + consent.

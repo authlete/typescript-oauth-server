@@ -6,20 +6,32 @@ a separate **interaction app**, and to securely exchange information with that
 app over the network.
 
 The AS speaks standard OAuth/OIDC at its public surface. Everything that
-involves a human moves out to the interaction app, which owns the user store
-and the consent store. The two peers talk to each other only through the
-contract defined here.
+involves a human moves out to interaction app(s). The two peers talk to each
+other only through the contract defined here.
+
+## The model
+
+An authorization has **required interactions** — `authenticate`, and `consent`
+when there's something to consent to. Each yields an **outcome**. The AS hands an
+app the browser; the app runs the interactions served at its own URL, reporting
+each outcome, until the AS says it's done; then it returns the browser to the AS,
+which either hands off to the next app or finalizes once every outcome is in.
+Apps are dumb — the AS drives them; an app doesn't know if it runs one interaction
+or several.
 
 ## Roles
 
-| Role                | Owns                                                                        |
-| ------------------- | --------------------------------------------------------------------------- |
-| **AS**              | OAuth/OIDC endpoints, authorization-transaction state, no UI, no user data. |
-| **Interaction app** | User store, consent store, all UI screens. No OAuth/OIDC knowledge.         |
+| Role                | Owns                                                                                                                                 |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| **AS**              | OAuth/OIDC endpoints, the authorization-transaction state machine, and which app runs each interaction. No UI, no user data.         |
+| **Interaction app** | User store + UI for the interactions it serves. Renders what the AS hands it; no OAuth/OIDC logic, not the consent system-of-record. |
 
-The interaction app is pluggable. Any app that implements this contract can
-pair with the AS — the canonical implementation in this project is `auth-ui`,
-but the protocol does not depend on it.
+Apps are pluggable and there can be more than one. The canonical app is
+`auth-ui`, which serves `authenticate` (and `consent` inline, by default). A
+regulated deployment may add a dedicated **consent UI** that serves `consent`;
+it's just a second interaction app entered the same way. In that mode the consent
+system-of-record is a separate external consent service the AS syncs to
+out-of-band (not this browser loop) — see "External consent" below.
 
 ## Trust model
 
@@ -69,7 +81,9 @@ Every receiver, every inbound JWT:
 2. Fetch the caller's JWKS from `<caller base URL>/.well-known/jwks.json`
    (cache with a 5-minute TTL); look up the key by `kid`.
 3. Verify the signature.
-4. Verify `iss` equals the configured caller identifier.
+4. Verify `iss` is a configured peer and select its JWKS by it — the AS accepts
+   either interaction app it's configured with (auth-ui, or the consent UI); the
+   verified `iss` is the caller's identity.
 5. Verify `aud` equals the receiver's own identifier.
 6. Verify `iat` is in the past (≤ 5s clock skew) and `exp` is in the future.
 7. Verify per-operation bindings (e.g. `authorization`, user `id`) match the URL.
@@ -155,26 +169,25 @@ The interaction app verifies the token (signature against the AS JWKS,
 the signed token and a single trusted AS identity is assumed, a token that
 verifies is proof the base is genuine — no separate origin allow-list is needed.
 
-#### 1.a. `GET /api/authorizations/{id}` — the next required interaction
+#### 1.a. `GET /api/authorizations/{id}` — the next interaction for the caller
 
 **Direction:** interaction app → AS.
 **JWT claims:** `authorization: <id from URL>`.
-**Response (JSON):** the client (for display) plus the first interaction. The AS
-orchestrates two interactions — **authenticate**, then **consent** — so the first
-step is always `authenticate`.
+**Response (JSON):** the client (for display) plus the next interaction **that this
+caller serves** — or `done` if the next pending interaction belongs to another app
+(then return the browser to `redirect_to`). auth-ui gets `authenticate` first;
+a dedicated consent UI gets `consent`.
 
 ```jsonc
 {
   "client": { "client_id", "name", "logo_uri", "policy_uri", "tos_uri" },
   "next": "authenticate",
-  "authenticate": {
-    "acr_values": ["..."],
-    "max_age": 3600,
-    "prompt": "login",
-    "login_hint": "...",
-    "ui_locales": ["en-US"]
-  }
+  "authenticate": { "acr_values": ["..."], "max_age": 3600, "prompt": "login", "login_hint": "...", "ui_locales": ["en-US"] }
 }
+// or, when consent is this caller's next interaction:
+{ "client": { ... }, "next": "consent", "consent": { "new": [...], "already_granted": [...], "authorization_details": [...] } }
+// or, nothing here for this caller:
+{ "client": { ... }, "next": "done", "redirect_to": "<AS_URL>/authorizations/<id>/resume" }
 ```
 
 ### 2. Interaction app → AS: report an interaction outcome
@@ -218,19 +231,32 @@ then redirects the browser to `redirect_to`.
 
 The AS computes the consent step for the authenticated subject:
 `new = requested − already-granted` (Authlete's `mergedGrantedScopes`). Consent is
-skipped (reply `done`) only when nothing is new **and** there are no
-`authorization_details` — RAR is per-request, so its presence always requires
-consent. `prompt=consent` re-confirms the whole request (nothing counts as
-pre-granted, so every requested scope is `new`). Any granted-scopes lookup failure
-falls back to full consent, so an AS that never uses the API behaves as before.
+required only when something is new **or** there are `authorization_details` (RAR
+is per-request, so its presence always requires consent) — **unless** the client
+is trusted **first-party**, which suppresses consent entirely (see below).
+`prompt=consent` re-confirms the whole request (nothing counts as pre-granted). Any
+granted-scopes lookup failure falls back to full consent.
+
+**First-party clients.** A client marked `first_party=true` (an attribute on its
+Authlete client record) skips consent — the AS auto-grants the full request. This
+is how the consent UI's own OIDC sign-in stays silent. It's client configuration
+in Authlete, not protocol config.
 
 ### 3. AS resume: `GET /authorizations/{id}/resume`
 
-Browser-hit on the AS side, once the app has looped to `done`. The AS completes the
-OAuth flow from the accumulated outcomes — `issue` with the authenticated subject
-and the final scope grant (already-granted ∪ newly consented), or `fail` if either
-interaction was rejected — and redirects the browser to the RP's `redirect_uri`.
-The authorization code never passes through the interaction app.
+Browser-hit on the AS side, once an app has looped to `done`. The AS looks at what
+interaction is still pending:
+
+- **Another app's interaction is pending** (e.g. auth-ui finished authenticate and
+  a dedicated consent UI must run consent) → redirect the browser to that app's
+  entry (§1), same signed-token convention.
+- **Nothing pending** → complete the OAuth flow from the accumulated outcomes:
+  `issue` with the authenticated subject and the final scope grant
+  (already-granted ∪ newly consented; the full request for a first-party client),
+  or `fail` if any interaction was rejected — then redirect to the RP's
+  `redirect_uri`.
+
+The authorization code never passes through an interaction app.
 
 ### 4. AS → interaction app: fetch the user resource
 
@@ -277,11 +303,11 @@ but the JWT carries a `subject` claim (the acting user) instead of an
         "name": "...",
         "logo_uri": "...",
         "client_uri": "...",
-        "redirect_uris": ["..."]
+        "redirect_uris": ["..."],
       },
-      "scopes": ["openid", "email"]
-    }
-  ]
+      "scopes": ["openid", "email"],
+    },
+  ],
 }
 ```
 
@@ -291,6 +317,20 @@ Clears the subject's remembered scopes and tokens for the client, so a later
 authorization re-prompts consent. `204 No Content` on success.
 
 **JWT claims:** `{ "subject": "<user-id>" }`
+
+## External consent
+
+When a dedicated consent UI is configured, a separate consent service is the
+consent system-of-record. The AS keeps it in sync out-of-band — not in the
+browser loop, and only from the generic grant lifecycle:
+
+- **After issue** (`/token`), if the grant carries a `consent_id`, the AS links
+  the grant to that consent record.
+- **On revoke** (`/gm` DELETE), the AS notifies the consent service.
+
+Same mutual-JWT primitive, addressed to the consent service. These calls no-op
+when no consent service is configured, and `/token` and `/gm` never reference the
+consent service directly — the calls sit behind a generic grant-lifecycle seam.
 
 ## Configuration
 
@@ -305,6 +345,11 @@ Each peer needs:
 The interaction app does **not** configure the AS's callback base — it receives
 that per-request in the §1 interaction token. It still configures the AS's
 _identity_ (issuer id + JWKS URI) statically, as the trust anchor.
+
+The AS configures its auth-ui peer (base URL) and, optionally, a second peer for
+the consent UI (base URL). A consent UI's presence is the only switch: absent →
+auth-ui handles consent inline; present → auth-ui authenticates and the consent UI
+handles consent. Base URL is the only per-app config.
 
 Env-var names are implementation-specific; see each repo's `.env.example`.
 
