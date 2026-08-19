@@ -89,14 +89,11 @@ async function alreadyGrantedScopes(
   }
 }
 
-// First-party status is client configuration in Authlete (a `first_party=true`
-// attribute), so it's fixed for the process — cache it per client id.
-const firstPartyCache = new Map<string, boolean>();
-
 /**
  * Whether the client is marked first-party via a `first_party=true` attribute on
  * its Authlete client record. The authorization response carries only a limited
- * client, so read the full client once (then cache).
+ * client, so read the full client. Not cached — this runs once per interactive
+ * authorization, so a fresh read reflects attribute changes without a redeploy.
  */
 async function isFirstParty(
   authlete: Authlete,
@@ -105,18 +102,10 @@ async function isFirstParty(
 ): Promise<boolean> {
   const clientId = client.clientId != null ? String(client.clientId) : client.clientIdAlias;
   if (!clientId) return false;
-
-  const cached = firstPartyCache.get(clientId);
-  if (cached !== undefined) return cached;
-
-  let firstParty = false;
   try {
     const full = await authlete.client.get({ serviceId: config.authleteServiceId, clientId });
-    firstParty =
-      full.attributes?.some((a) => a.key === "first_party" && a.value === "true") ?? false;
+    return full.attributes?.some((a) => a.key === "first_party" && a.value === "true") ?? false;
   } catch {
-    firstParty = false; // treat an unreadable client as not first-party
+    return false; // treat an unreadable client as not first-party
   }
-  firstPartyCache.set(clientId, firstParty);
-  return firstParty;
 }
