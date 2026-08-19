@@ -3,14 +3,14 @@
 import type { Context } from "hono";
 import { Hono } from "hono";
 import type { Deps } from "../app.js";
-import { requireJws } from "../interaction/auth.js";
+import { requireInteractionJwt } from "../interaction/guard.js";
 
 export function authorizedAppsRoutes({ authlete, config }: Deps) {
   const routes = new Hono();
   const serviceId = config.authleteServiceId;
 
   async function subjectOf(c: Context): Promise<string | Response> {
-    const auth = await requireJws(c, config);
+    const auth = await requireInteractionJwt(c, config);
     if (auth instanceof Response) return auth;
     const subject = auth.payload.subject;
     if (typeof subject !== "string" || subject.length === 0) {

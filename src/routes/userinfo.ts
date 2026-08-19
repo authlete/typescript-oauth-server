@@ -30,7 +30,7 @@ import {
   extractBearer,
   noStoreJsonHeaders,
 } from "../http.js";
-import { fetchUser } from "../interaction/auth-ui.js";
+import { fetchUser } from "../interaction/auth-ui-client.js";
 
 export function userinfoRoutes({ authlete, config }: Deps) {
   const userinfo = new Hono();

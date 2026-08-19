@@ -29,7 +29,7 @@ import { loadContext } from "./ticket-store.js";
 import { recordAuthentication } from "./authenticate.js";
 import { recordConsent } from "./consent.js";
 import { finalize, interactionPayload, nextInteraction } from "./steps.js";
-import { requireJws, type InteractionAuthContext } from "./auth.js";
+import { requireInteractionJwt, type VerifiedCaller } from "./guard.js";
 import { getAsPublicJwks } from "./jwks.js";
 import { signJwt } from "./jwt.js";
 
@@ -105,8 +105,11 @@ export function interactionRoutes({ authlete, config }: Deps) {
   async function requireAuthorization(
     c: Context,
     id: string,
-  ): Promise<{ auth: InteractionAuthContext; ctx: StoredContext } | Response> {
-    const [auth, ctx] = await Promise.all([requireJws(c, config), loadContext(config, id)]);
+  ): Promise<{ auth: VerifiedCaller; ctx: StoredContext } | Response> {
+    const [auth, ctx] = await Promise.all([
+      requireInteractionJwt(c, config),
+      loadContext(config, id),
+    ]);
     if (auth instanceof Response) return auth;
     if (!ctx) {
       return c.json(

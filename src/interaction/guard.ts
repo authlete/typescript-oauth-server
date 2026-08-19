@@ -1,7 +1,8 @@
 /**
- * Interaction-protocol authentication: per-request JWT in the Authorization
- * Bearer header. Verifies against auth-ui's published JWKS and returns the
- * decoded payload. See INTERACTION_PROTOCOL.md §4–§5.
+ * Inbound guard for the interaction protocol: verifies the caller's per-request
+ * JWT (Authorization Bearer) against the calling app's published JWKS, selected
+ * by the token's `iss`, and returns the decoded payload. See
+ * INTERACTION_PROTOCOL.md §4–§5.
  */
 
 import type { Context } from "hono";
@@ -12,18 +13,18 @@ import { verifyJwt } from "./jwt.js";
 
 const CHALLENGE = 'Bearer realm="authlete-as", error="invalid_token"';
 
-export type InteractionAuthContext = {
+export type VerifiedCaller = {
   payload: JWTPayload;
 };
 
 /**
  * Validate an inbound interaction protocol JWT. Returns either a verified
- * payload context or a `Response` the caller should return verbatim.
+ * caller context or a `Response` the caller should return verbatim.
  */
-export async function requireJws(
+export async function requireInteractionJwt(
   c: Context,
   config: Config,
-): Promise<InteractionAuthContext | Response> {
+): Promise<VerifiedCaller | Response> {
   const jwt = extractBearer(c.req.header("authorization"));
   if (!jwt) {
     return c.body(
