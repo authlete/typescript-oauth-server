@@ -96,7 +96,9 @@ export async function verifyJwt(config: Config, jwt: string): Promise<JWTPayload
   const [issuer, jwksUri] =
     iss && iss === config.consentUiIssuerId
       ? [config.consentUiIssuerId, config.consentUiJwksUri]
-      : [config.authUiIssuerId, config.authUiJwksUri];
+      : iss && iss === config.authDeviceIssuerId
+        ? [config.authDeviceIssuerId, config.authDeviceJwksUri]
+        : [config.authUiIssuerId, config.authUiJwksUri];
   const { payload } = await jwtVerify(jwt, remoteJwks(jwksUri), {
     issuer,
     audience: config.asIssuerId,

@@ -47,6 +47,11 @@ export interface Config {
   consentUiUrl: string;
   consentUiIssuerId: string;
   consentUiJwksUri: string;
+  // Optional CIBA authentication device. Defaults to auth-ui; set AUTH_DEVICE_URL
+  // only when a dedicated device is used. URL → issuer + JWKS, as with the peers above.
+  authDeviceUrl: string;
+  authDeviceIssuerId: string;
+  authDeviceJwksUri: string;
   // First-party Grant API (Authlete spike). Off by default — prod doesn't ship it.
   grantApiEnabled: boolean;
 }
@@ -67,6 +72,7 @@ export function fromEnv(): Config {
   const asBaseUrl = resolveAsBaseUrl();
   const authUiUrl = required("AUTH_UI_URL");
   const consentUiUrl = optional("CONSENT_UI_URL", "");
+  const authDeviceUrl = optional("AUTH_DEVICE_URL", authUiUrl); // optional; defaults to auth-ui
   return {
     authleteBaseUrl: optional("AUTHLETE_BASE_URL", "https://us.authlete.com"),
     authleteServiceId: required("AUTHLETE_SERVICE_ID"),
@@ -85,6 +91,9 @@ export function fromEnv(): Config {
     consentUiUrl,
     consentUiIssuerId: consentUiUrl,
     consentUiJwksUri: consentUiUrl ? `${consentUiUrl}/.well-known/jwks.json` : "",
+    authDeviceUrl,
+    authDeviceIssuerId: authDeviceUrl,
+    authDeviceJwksUri: `${authDeviceUrl}/.well-known/jwks.json`,
     grantApiEnabled: optional("GRANT_API_ENABLED", "false") === "true",
   };
 }

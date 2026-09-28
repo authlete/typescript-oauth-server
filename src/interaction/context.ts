@@ -90,7 +90,7 @@ export function toAuthContext(res: AuthorizationResponse): AuthContext {
 }
 
 /** Un-fold Authlete's stringified `otherFields` back into plain RFC 9396 elements. */
-function normalizeRar(elements: RarElement[]): RarElement[] {
+export function normalizeRar(elements: RarElement[]): RarElement[] {
   return elements.map((el) => {
     const { otherFields, ...rest } = el;
     if (typeof otherFields !== "string") return rest;

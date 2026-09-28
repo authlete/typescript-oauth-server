@@ -332,6 +332,21 @@ Same mutual-JWT primitive, addressed to the consent service. These calls no-op
 when no consent service is configured, and `/token` and `/gm` never reference the
 consent service directly — the calls sit behind a generic grant-lifecycle seam.
 
+## Authentication Device profile (CIBA)
+
+Same login + consent, but the AS **pushes** to the device instead of redirecting.
+The ticket round-trips as a JWT claim (as `authorization` does in §1), so the AS
+keeps no per-transaction state. Device defaults to auth-ui.
+
+- **AS → device** `POST /ciba/requests` — JWT claims:
+  `{ ticket, login_hint, client_name, scopes, authorization_details, binding_message, expires_at }`
+  (`scopes` + `authorization_details` as in the §2 consent payload, so the device renders both).
+- **device → AS** `POST /api/backchannel/outcome` — JWT claims `ticket` (verbatim) +
+  `outcome`, the [§2](#2-interaction-app--as-report-an-interaction-outcome) result:
+  `{ subject, acr?, auth_time?, user_claims?, granted_scopes? }` or `{ error, error_description? }`.
+
+The AS calls Authlete `complete` (`AUTHORIZED` | `ACCESS_DENIED`), honors its `NOTIFICATION` action (ping/push).
+
 ## Configuration
 
 Each peer needs:
