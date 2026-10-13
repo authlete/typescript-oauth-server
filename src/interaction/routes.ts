@@ -5,6 +5,8 @@
  *     GET  /api/authorizations/{id}           — the next interaction for the caller
  *     POST /api/authorizations/{id}/outcome   — report an interaction's outcome
  *     POST /api/backchannel/outcome           — CIBA auth device reports its outcome
+ *     POST /api/device/verification           — device UI looks up a user_code
+ *     POST /api/device/outcome                — device UI reports its outcome
  *
  *   Browser (an interaction app redirects the user back here once its part is done):
  *     GET  /authorizations/{id}/resume        — hand off to the next app, or finish
@@ -34,6 +36,7 @@ import { requireInteractionJwt, type VerifiedCaller } from "./guard.js";
 import { getAsPublicJwks } from "./jwks.js";
 import { signJwt } from "./jwt.js";
 import { completeCiba, type CibaOutcome } from "../ciba/complete.js";
+import { verifyDevice, completeDevice, type DeviceOutcome } from "../device/flow.js";
 
 /** The outcome an app reports (carried as the `outcome` claim of the request JWT). */
 type Outcome =
@@ -217,6 +220,54 @@ export function interactionRoutes({ authlete, config }: Deps) {
       );
     }
     await completeCiba(authlete, config, ticket, outcome);
+    return c.body(null, 204);
+  });
+
+  // --- POST /api/device/verification — device UI looks up a user_code -------
+  // Device flow pulls (vs CIBA's push): the UI resolves the user_code to the
+  // request details so it can render consent.
+  interaction.post("/api/device/verification", async (c) => {
+    const caller = await requireInteractionJwt(c, config);
+    if (caller instanceof Response) return caller;
+
+    const userCode = caller.payload.user_code as string | undefined;
+    if (!userCode) {
+      return c.json({ error: "invalid_request", error_description: "user_code required" }, 400);
+    }
+    const v = await verifyDevice(authlete, config, userCode);
+    if (!v.ok) {
+      return v.reason === "expired"
+        ? c.json({ error: "expired_token" }, 410)
+        : c.json({ error: "not_found" }, 404);
+    }
+    return c.json({
+      client_name: v.client_name,
+      scopes: v.scopes,
+      authorization_details: v.authorization_details,
+      expires_at: v.expires_at,
+    });
+  });
+
+  // --- POST /api/device/outcome — device UI reports its outcome -------------
+  interaction.post("/api/device/outcome", async (c) => {
+    const caller = await requireInteractionJwt(c, config);
+    if (caller instanceof Response) return caller;
+
+    const userCode = caller.payload.user_code as string | undefined;
+    const outcome = caller.payload.outcome as DeviceOutcome | undefined;
+    if (!userCode || !outcome) {
+      return c.json(
+        { error: "invalid_request", error_description: "user_code and outcome required" },
+        400,
+      );
+    }
+    const action = await completeDevice(authlete, config, userCode, outcome);
+    if (action !== "SUCCESS") {
+      return c.json(
+        { error: "invalid_request", error_description: `device/complete: ${action}` },
+        400,
+      );
+    }
     return c.body(null, 204);
   });
 

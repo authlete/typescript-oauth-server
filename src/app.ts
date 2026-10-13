@@ -22,6 +22,7 @@ import { introspectRoutes } from "./routes/introspect.js";
 import { revokeRoutes } from "./routes/revoke.js";
 import { parRoutes } from "./routes/par.js";
 import { backchannelRoutes } from "./routes/backchannel.js";
+import { deviceRoutes } from "./routes/device.js";
 import { gmRoutes } from "./routes/gm.js";
 import { grantsRoutes } from "./routes/grants.js";
 import { authorizedAppsRoutes } from "./routes/authorized-apps.js";
@@ -69,6 +70,7 @@ export function createOAuthServer(config: Config): Hono {
     app.use("/api/register/*", corsMiddleware);
     app.use("/api/gm/*", corsMiddleware);
     app.use("/api/backchannel/authentication", corsMiddleware);
+    app.use("/api/device/authorization", corsMiddleware);
   }
 
   // Root signpost.
@@ -93,6 +95,7 @@ export function createOAuthServer(config: Config): Hono {
   app.route("/", revokeRoutes(deps));
   app.route("/", parRoutes(deps));
   app.route("/", backchannelRoutes(deps));
+  app.route("/", deviceRoutes(deps));
   app.route("/", gmRoutes(deps));
   app.route("/", grantsRoutes(deps));
   app.route("/", authorizedAppsRoutes(deps));
