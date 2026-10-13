@@ -4,6 +4,7 @@
  *   API (called by an interaction app server-to-server, JWT-bearer-authenticated):
  *     GET  /api/authorizations/{id}           — the next interaction for the caller
  *     POST /api/authorizations/{id}/outcome   — report an interaction's outcome
+ *     POST /api/backchannel/outcome           — CIBA auth device reports its outcome
  *
  *   Browser (an interaction app redirects the user back here once its part is done):
  *     GET  /authorizations/{id}/resume        — hand off to the next app, or finish
@@ -32,6 +33,7 @@ import { finalize, interactionPayload, nextInteraction } from "./steps.js";
 import { requireInteractionJwt, type VerifiedCaller } from "./guard.js";
 import { getAsPublicJwks } from "./jwks.js";
 import { signJwt } from "./jwt.js";
+import { completeCiba, type CibaOutcome } from "../ciba/complete.js";
 
 /** The outcome an app reports (carried as the `outcome` claim of the request JWT). */
 type Outcome =
@@ -199,6 +201,23 @@ export function interactionRoutes({ authlete, config }: Deps) {
       );
     }
     return c.json(nextForApp(config, id, ctx, guard.auth.payload.iss));
+  });
+
+  // --- POST /api/backchannel/outcome — CIBA auth device reports its outcome
+  interaction.post("/api/backchannel/outcome", async (c) => {
+    const caller = await requireInteractionJwt(c, config);
+    if (caller instanceof Response) return caller;
+
+    const ticket = caller.payload.ticket as string | undefined;
+    const outcome = caller.payload.outcome as CibaOutcome | undefined;
+    if (!ticket || !outcome) {
+      return c.json(
+        { error: "invalid_request", error_description: "ticket and outcome required" },
+        400,
+      );
+    }
+    await completeCiba(authlete, config, ticket, outcome);
+    return c.body(null, 204);
   });
 
   // --- GET /authorizations/:id/resume — hand off to the next app, or finish

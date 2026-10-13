@@ -1,12 +1,11 @@
-/** CIBA (backchannel authentication): the client request, and the auth device's outcome. See INTERACTION_PROTOCOL.md. */
+/** CIBA backchannel authentication — the client request. The auth device's outcome is an interaction endpoint (interaction/routes.ts). See INTERACTION_PROTOCOL.md. */
 
 import { Hono } from "hono";
 import type { Deps } from "../app.js";
 import { basicChallengeHeaders, basicCredsFor, sendAuthleteAction } from "../http.js";
 import { normalizeRar, type RarElement } from "../interaction/context.js";
-import { requireInteractionJwt } from "../interaction/guard.js";
 import { notifyAuthDevice } from "../ciba/auth-device.js";
-import { completeCiba, failCiba, type CibaOutcome } from "../ciba/complete.js";
+import { failCiba } from "../ciba/complete.js";
 
 export function backchannelRoutes({ authlete, config }: Deps) {
   const bc = new Hono();
@@ -55,23 +54,6 @@ export function backchannelRoutes({ authlete, config }: Deps) {
     }
 
     return sendAuthleteAction(c, issued, { OK: 200 });
-  });
-
-  bc.post("/api/backchannel/outcome", async (c) => {
-    const caller = await requireInteractionJwt(c, config);
-    if (caller instanceof Response) return caller;
-
-    const ticket = caller.payload.ticket as string | undefined;
-    const outcome = caller.payload.outcome as CibaOutcome | undefined;
-    if (!ticket || !outcome) {
-      return c.json(
-        { error: "invalid_request", error_description: "ticket and outcome required" },
-        400,
-      );
-    }
-
-    await completeCiba(authlete, config, ticket, outcome);
-    return c.body(null, 204);
   });
 
   return bc;
