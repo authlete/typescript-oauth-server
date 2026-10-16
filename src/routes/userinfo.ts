@@ -27,7 +27,10 @@ import type { Deps } from "../app.js";
 import {
   bearerAuthChallenge,
   bearerChallenge,
+  dpopNonceHeader,
+  dpopParams,
   extractBearer,
+  extractDpopToken,
   noStoreJsonHeaders,
 } from "../http.js";
 import { fetchUser } from "../interaction/auth-ui-client.js";
@@ -40,11 +43,11 @@ export function userinfoRoutes({ authlete, config }: Deps) {
 
     const proc = await authlete.userinfo.process({
       serviceId: config.authleteServiceId,
-      userinfoRequest: { token },
+      userinfoRequest: { token, ...dpopParams(c) },
     });
 
     if (proc.action !== "OK") {
-      return mapErrorAction(c, proc.action, proc.responseContent);
+      return mapErrorAction(c, proc.action, proc.responseContent, proc.dpopNonce);
     }
 
     // If Authlete didn't supply values itself, fetch the user live from auth-ui
@@ -66,16 +69,23 @@ export function userinfoRoutes({ authlete, config }: Deps) {
       userinfoIssueRequest: { token, claims: claimsJson, sub: proc.subject },
     });
 
+    // A DPoP nonce, if any, is decided at the /auth/userinfo (process) step —
+    // echo it on whatever the issue step returns.
+    const nonceHeader = dpopNonceHeader(proc);
     switch (issue.action) {
       case "JSON":
-        return c.body(issue.responseContent ?? "{}", 200, noStoreJsonHeaders);
+        return c.body(issue.responseContent ?? "{}", 200, {
+          ...noStoreJsonHeaders,
+          ...nonceHeader,
+        });
       case "JWT":
         return c.body(issue.responseContent ?? "", 200, {
           ...noStoreJsonHeaders,
           "content-type": "application/jwt",
+          ...nonceHeader,
         });
       default:
-        return mapErrorAction(c, issue.action, issue.responseContent);
+        return mapErrorAction(c, issue.action, issue.responseContent, proc.dpopNonce);
     }
   }
 
@@ -99,18 +109,20 @@ function mapErrorAction(
   c: Context,
   action: string | undefined,
   responseContent: string | undefined,
+  dpopNonce?: string,
 ): Response {
   const wwwAuth = responseContent || bearerAuthChallenge;
+  const nonce = dpopNonceHeader({ dpopNonce });
   switch (action) {
     case "UNAUTHORIZED":
-      return bearerChallenge(c, 401, wwwAuth);
+      return bearerChallenge(c, 401, wwwAuth, nonce);
     case "FORBIDDEN":
-      return bearerChallenge(c, 403, wwwAuth);
+      return bearerChallenge(c, 403, wwwAuth, nonce);
     case "BAD_REQUEST":
-      return bearerChallenge(c, 400, wwwAuth);
+      return bearerChallenge(c, 400, wwwAuth, nonce);
     case "INTERNAL_SERVER_ERROR":
     default:
-      return c.body(responseContent ?? "", 500, noStoreJsonHeaders);
+      return c.body(responseContent ?? "", 500, { ...noStoreJsonHeaders, ...nonce });
   }
 }
 
@@ -139,10 +151,15 @@ function projectClaims(user: Record<string, unknown>, wanted: string[]): Record<
   return out;
 }
 
-/** Authorization header → form body → query string (RFC 6750 §2). */
+/**
+ * Authorization header → form body → query string (RFC 6750 §2). The header
+ * carries either a `Bearer` or a DPoP-bound `DPoP` token (RFC 9449 §7.1).
+ */
 function extractAccessToken(c: Context, formToken?: string): string | undefined {
+  const authz = c.req.header("authorization");
   return (
-    extractBearer(c.req.header("authorization")) ||
+    extractBearer(authz) ||
+    extractDpopToken(authz) ||
     formToken ||
     c.req.query("access_token") ||
     undefined

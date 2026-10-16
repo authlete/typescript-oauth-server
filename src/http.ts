@@ -32,14 +32,39 @@ export function bearerChallenge(
   c: Context,
   status: 400 | 401 | 403,
   wwwAuth: string = bearerAuthChallenge,
+  extraHeaders: Record<string, string> = {},
 ): Response {
-  return c.body(null, status, { "WWW-Authenticate": wwwAuth });
+  return c.body(null, status, { "WWW-Authenticate": wwwAuth, ...extraHeaders });
 }
 
 export function extractBearer(header: string | undefined): string | undefined {
   if (!header) return undefined;
   const match = /^Bearer\s+(.+)$/i.exec(header);
   return match?.[1]?.trim() || undefined;
+}
+
+/** RFC 9449 §7.1: a DPoP-bound access token travels as `Authorization: DPoP <token>`. */
+export function extractDpopToken(header: string | undefined): string | undefined {
+  if (!header) return undefined;
+  const match = /^DPoP\s+(.+)$/i.exec(header);
+  return match?.[1]?.trim() || undefined;
+}
+
+/**
+ * DPoP proof + HTTP method to hand Authlete for proof validation (RFC 9449).
+ * `htu` is intentionally omitted: Authlete uses the endpoint URL from the
+ * service's own configuration, so the AS holds no endpoint knowledge.
+ */
+export function dpopParams(c: Context): { dpop: string | undefined; htm: string } {
+  return { dpop: c.req.header("DPoP"), htm: c.req.method };
+}
+
+/**
+ * The `DPoP-Nonce` response header the AS must echo when Authlete supplies a
+ * nonce (RFC 9449 §8–§9). Absent otherwise.
+ */
+export function dpopNonceHeader(res: { dpopNonce?: string | undefined }): Record<string, string> {
+  return res.dpopNonce ? { "DPoP-Nonce": res.dpopNonce } : {};
 }
 
 /**
@@ -89,11 +114,13 @@ export type ActionMapping =
 
 /**
  * Send an Authlete response by looking its `action` up in a per-endpoint map.
- * Unmapped actions become a 500 `server_error` naming the action.
+ * Unmapped actions become a 500 `server_error` naming the action. When Authlete
+ * returns a DPoP nonce, the `DPoP-Nonce` header is added automatically (RFC 9449),
+ * so callers don't repeat that per endpoint.
  */
 export function sendAuthleteAction(
   c: Context,
-  res: { action?: string; responseContent?: string | undefined },
+  res: { action?: string; responseContent?: string | undefined; dpopNonce?: string | undefined },
   map: Record<string, ActionMapping>,
 ): Response {
   const entry = map[res.action ?? ""];
@@ -108,7 +135,7 @@ export function sendAuthleteAction(
     );
   }
   const mapping = typeof entry === "number" ? { status: entry } : entry;
-  const headers = mapping.headers ?? noStoreJsonHeaders;
+  const headers = { ...(mapping.headers ?? noStoreJsonHeaders), ...dpopNonceHeader(res) };
   const body = mapping.body !== undefined ? mapping.body : (res.responseContent ?? "");
   if (body === null) return c.body(null, mapping.status as StatusCode, headers);
   return c.body(body, mapping.status as ContentfulStatusCode, headers);

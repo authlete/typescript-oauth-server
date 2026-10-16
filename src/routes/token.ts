@@ -8,7 +8,7 @@
 
 import { Hono } from "hono";
 import type { Deps } from "../app.js";
-import { basicChallengeHeaders, basicCredsFor, sendAuthleteAction } from "../http.js";
+import { basicChallengeHeaders, basicCredsFor, dpopParams, sendAuthleteAction } from "../http.js";
 import { onGrantIssued } from "../grant-lifecycle.js";
 
 /** Grant flows Authlete supports but this AS has not implemented. */
@@ -27,7 +27,7 @@ export function tokenRoutes({ authlete, config }: Deps) {
     const parameters = await c.req.text();
     const res = await authlete.token.process({
       serviceId: config.authleteServiceId,
-      tokenRequest: { parameters, ...basicCredsFor(c) },
+      tokenRequest: { parameters, ...basicCredsFor(c), ...dpopParams(c) },
     });
 
     // A grant surfaces here when grant management was used — run post-processing.

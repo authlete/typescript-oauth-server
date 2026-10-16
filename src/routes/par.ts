@@ -8,7 +8,7 @@
 
 import { Hono } from "hono";
 import type { Deps } from "../app.js";
-import { basicChallengeHeaders, basicCredsFor, sendAuthleteAction } from "../http.js";
+import { basicChallengeHeaders, basicCredsFor, dpopParams, sendAuthleteAction } from "../http.js";
 
 export function parRoutes({ authlete, config }: Deps) {
   const par = new Hono();
@@ -17,7 +17,7 @@ export function parRoutes({ authlete, config }: Deps) {
     const parameters = await c.req.text();
     const res = await authlete.pushedAuthorization.create({
       serviceId: config.authleteServiceId,
-      pushedAuthorizationRequest: { parameters, ...basicCredsFor(c) },
+      pushedAuthorizationRequest: { parameters, ...basicCredsFor(c), ...dpopParams(c) },
     });
     return sendAuthleteAction(c, res, {
       CREATED: { status: 201, body: res.responseContent || "{}" },
