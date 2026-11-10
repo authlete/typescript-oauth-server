@@ -54,6 +54,8 @@ export interface Config {
   authDeviceJwksUri: string;
   // First-party Grant API (Authlete spike). Off by default — prod doesn't ship it.
   grantApiEnabled: boolean;
+  // TEMPORARY (authlete-java-common#178): `protected_resources` discovery metadata, comma-separated.
+  protectedResources: string[];
 }
 
 // The AS's public origin. Prefer the explicit AS_BASE_URL; on Vercel preview
@@ -95,5 +97,6 @@ export function fromEnv(): Config {
     authDeviceIssuerId: authDeviceUrl,
     authDeviceJwksUri: `${authDeviceUrl}/.well-known/jwks.json`,
     grantApiEnabled: optional("GRANT_API_ENABLED", "false") === "true",
+    protectedResources: list("PROTECTED_RESOURCES"),
   };
 }
